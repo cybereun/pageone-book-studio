@@ -22,6 +22,16 @@ const defaultTextStyles: Record<TextTarget, TextStyle> = {
   spineAuthor: { fontFamily: "Noto Sans KR", fontSize: 6, color: "#ffffff", align: "center", offsetX: 0, offsetY: 0 },
 };
 
+const coverColorPalette = [
+  "#fff8ed", "#f5e6cf", "#d9c2a6", "#8f6b4f", "#49352b",
+  "#ffd9d0", "#ff9d88", "#e85d4a", "#a72f33", "#5a2028",
+  "#ffe6a7", "#f2c14e", "#d98c21", "#8b5e23", "#4f351d",
+  "#dff2df", "#8ec9a3", "#3f8f68", "#1f5d46", "#153a32",
+  "#d9eef7", "#84c5df", "#3a8fb7", "#24516f", "#162d45",
+  "#e7def7", "#ae8bd6", "#7654a8", "#49356e", "#292039",
+  "#f1f1f1", "#b8b8b8", "#707070", "#323232", "#111111",
+];
+
 function coverDatabase() {
   return new Promise<IDBDatabase>((resolve, reject) => {
     const request = indexedDB.open("pageone-assets", 1);
@@ -103,6 +113,7 @@ export default function Home() {
   const [customTexts, setCustomTexts] = useState<CustomText[]>([]);
   const [selectedCustomTextId, setSelectedCustomTextId] = useState<number | null>(null);
   const [backgroundColor, setBackgroundColor] = useState("#d95b42");
+  const [customColorsOpen, setCustomColorsOpen] = useState(false);
   const [backgroundScale, setBackgroundScale] = useState(100);
   const [backgroundX, setBackgroundX] = useState(50);
   const [backgroundY, setBackgroundY] = useState(50);
@@ -653,7 +664,7 @@ export default function Home() {
                 <div className="editor-popover-head"><b>{activeTool === "text" ? "텍스트 편집" : activeTool === "image" ? "배경 이미지" : activeTool === "color" ? "표지 색상" : "위치와 정렬"}</b><button aria-label="편집 도구 닫기" onClick={() => setActiveTool(null)}>×</button></div>
                 {activeTool === "text" && <>{selectedCustomTextId === null ? <label>편집 대상<select value={selectedText} onChange={(event) => selectBuiltInText(event.target.value as TextTarget)}><option value="title">앞표지 제목</option><option value="subtitle">부제</option><option value="author">저자명</option><option value="spineTitle">책등 제목</option><option value="spineAuthor">책등 작가명</option></select></label> : <div className="custom-text-selected"><span>추가 텍스트 편집 중</span><button onClick={() => setSelectedCustomTextId(null)}>기본 텍스트 선택</button></div>}<label>글꼴<select value={activeTextStyle.fontFamily} onChange={(event) => patchTextStyle({ fontFamily: event.target.value })}><option>Noto Serif KR</option><option>Noto Sans KR</option><option>Georgia</option><option>Arial</option></select></label><label>크기<input type="range" min="5" max="56" value={activeTextStyle.fontSize} onChange={(event) => patchTextStyle({ fontSize: Number(event.target.value) })} /><output>{activeTextStyle.fontSize}px</output></label><label>글자색<input type="color" value={activeTextStyle.color} onChange={(event) => patchTextStyle({ color: event.target.value })} /></label>{selectedCustomTextId !== null && <button className="delete-text-button" onClick={() => deleteCustomText(selectedCustomTextId)}>추가 텍스트 삭제</button>}<button className="add-text-button" onClick={addCustomText}>＋ 텍스트 추가</button></>}
                 {activeTool === "image" && <><label className="image-replace">이미지 교체<input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => importCanvaCover(event.target.files?.[0], "ai")} /></label><label>확대<input type="range" min="100" max="200" value={backgroundScale} onChange={(event) => setBackgroundScale(Number(event.target.value))} /><output>{backgroundScale}%</output></label><label>가로 위치<input type="range" min="0" max="100" value={backgroundX} onChange={(event) => setBackgroundX(Number(event.target.value))} /></label><label>세로 위치<input type="range" min="0" max="100" value={backgroundY} onChange={(event) => setBackgroundY(Number(event.target.value))} /></label></>}
-                {activeTool === "color" && <><label>배경색<input type="color" value={backgroundColor} onChange={(event) => setBackgroundColor(event.target.value)} /></label><div className="color-swatches">{["#d95b42", "#182a3b", "#315447", "#ede5d4", "#2a2028"].map((color) => <button key={color} aria-label={`${color} 색상`} style={{ background: color }} onClick={() => setBackgroundColor(color)} />)}</div></>}
+                {activeTool === "color" && <><label>배경색<input type="color" value={backgroundColor} onChange={(event) => setBackgroundColor(event.target.value)} /></label><div className="color-swatches">{["#d95b42", "#182a3b", "#315447", "#ede5d4", "#2a2028"].map((color) => <button key={color} className={backgroundColor === color ? "active" : ""} aria-label={`${color} 색상`} style={{ background: color }} onClick={() => setBackgroundColor(color)} />)}</div><button type="button" className="custom-color-trigger" aria-expanded={customColorsOpen} onClick={() => setCustomColorsOpen((open) => !open)}><span>사용자 색상</span><b>{customColorsOpen ? "접기" : "다양한 색상 보기"}</b></button>{customColorsOpen && <div className="custom-color-panel" role="group" aria-label="사용자 색상 선택"><div className="custom-color-grid">{coverColorPalette.map((color) => <button type="button" key={color} className={backgroundColor === color ? "active" : ""} aria-label={`${color} 사용자 색상`} title={color.toUpperCase()} style={{ background: color }} onClick={() => setBackgroundColor(color)} />)}</div><label className="custom-color-picker">직접 선택<input type="color" value={backgroundColor} onChange={(event) => setBackgroundColor(event.target.value)} /><output>{backgroundColor.toUpperCase()}</output></label></div>}</>}
                 {activeTool === "align" && <><div className="align-buttons"><button onClick={() => patchTextStyle({ align: "left" })}>왼쪽</button><button onClick={() => patchTextStyle({ align: "center" })}>가운데</button><button onClick={() => patchTextStyle({ align: "right" })}>오른쪽</button></div><div className="nudge-buttons"><button aria-label="위로 이동" onClick={() => nudgeSelectedText(0, -2)}>↑</button><button aria-label="왼쪽으로 이동" onClick={() => nudgeSelectedText(-2, 0)}>←</button><button aria-label="위치 초기화" onClick={resetSelectedTextPosition}>•</button><button aria-label="오른쪽으로 이동" onClick={() => nudgeSelectedText(2, 0)}>→</button><button aria-label="아래로 이동" onClick={() => nudgeSelectedText(0, 2)}>↓</button></div></>}
               </div>}
             </div>

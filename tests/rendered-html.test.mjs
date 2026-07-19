@@ -33,7 +33,11 @@ test("cover controls expose real editing and export actions", async () => {
   assert.match(page, /aria-label="추가 텍스트 이동"/);
   assert.match(page, /aria-label="추가 텍스트 삭제"/);
   assert.match(page, /backgroundSize: `\$\{backgroundScale\}% \$\{backgroundScale\}%`/);
+  assert.match(page, /사용자 색상/);
+  assert.match(page, /aria-label="사용자 색상 선택"/);
+  assert.match(page, /custom-color-panel/);
   assert.match(css, /editor-popover/);
+  assert.match(css, /custom-color-grid/);
   assert.match(coverRoute, /gpt-image-1/);
   assert.match(coverRoute, /gemini-3\.1-flash-image/);
   assert.match(coverRoute, /claude-sonnet-4-20250514/);
