@@ -111,6 +111,11 @@ test("manuscript editor exposes chapter, page, contents, and working AI actions"
   assert.match(page, /pageLayout/);
   assert.match(page, /getNextManuscriptPage/);
   assert.match(page, /두 면/);
+  assert.match(page, /<article className="manuscript-page facing-page"/);
+  assert.match(page, /facing-page-action/);
+  assert.match(page, /facing-chapter-title/);
+  assert.match(page, /rich-manuscript-preview/);
+  assert.doesNotMatch(page, /<button type="button" className="manuscript-page facing-page"/);
   assert.match(page, /document\.execCommand/);
   assert.match(page, /suppressContentEditableWarning/);
   assert.match(page, /setManuscript/);
@@ -125,6 +130,9 @@ test("manuscript editor exposes chapter, page, contents, and working AI actions"
   assert.match(css, /\.font-size-select/);
   assert.match(css, /\.manuscript-spread/);
   assert.match(css, /\.facing-page/);
+  assert.match(css, /\.facing-page-action/);
+  assert.match(css, /\.facing-chapter-title/);
+  assert.match(css, /\.rich-manuscript-preview/);
   assert.match(writeRoute, /gpt-5\.4-mini/);
   assert.match(writeRoute, /gemini-3\.5-flash/);
   assert.match(writeRoute, /providerLabel/);
