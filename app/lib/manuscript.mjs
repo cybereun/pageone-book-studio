@@ -7,6 +7,12 @@ function escapeEditorText(value) {
   return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 }
 
+export function closestEditorFontSize(value, sizes) {
+  const parsed = Number.parseFloat(String(value));
+  if (!Number.isFinite(parsed) || !sizes.length) return sizes[0] ?? 14;
+  return sizes.reduce((closest, size) => Math.abs(size - parsed) < Math.abs(closest - parsed) ? size : closest, sizes[0]);
+}
+
 export function sanitizeEditorHtml(value) {
   const withoutUnsafeBlocks = String(value || "")
     .replace(/<!--[\s\S]*?-->/g, "")

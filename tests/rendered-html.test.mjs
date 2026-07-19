@@ -86,8 +86,12 @@ test("manuscript editor exposes chapter, page, contents, and working AI actions"
   assert.match(page, /applyFontFamily/);
   assert.match(page, /applyFontSize/);
   assert.match(page, /ensureEditorSelection/);
+  assert.match(page, /syncEditorToolbar/);
+  assert.match(page, /window\.getComputedStyle/);
+  assert.match(page, /closestEditorFontSize/);
   assert.match(page, /aria-label="글꼴"/);
   assert.match(page, /aria-label="글자 크기"/);
+  assert.match(page, /onMouseUp=\{syncEditorToolbar\}/);
   assert.match(page, /document\.execCommand/);
   assert.match(page, /suppressContentEditableWarning/);
   assert.match(page, /setManuscript/);

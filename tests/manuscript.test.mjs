@@ -5,6 +5,7 @@ import {
   addManuscriptChapter,
   addManuscriptPage,
   buildTableOfContents,
+  closestEditorFontSize,
   moveManuscriptChapter,
   removeManuscriptChapter,
   removeManuscriptPage,
@@ -66,4 +67,9 @@ test("keeps safe font family and size styles while removing unsafe styles", () =
     sanitizeEditorHtml('<font face="Noto Serif KR" size="5">제목</font>'),
     '<span style="font-family: Noto Serif KR; font-size: 24px">제목</span>',
   );
+});
+
+test("matches a clicked text size to the nearest toolbar size", () => {
+  assert.equal(closestEditorFontSize("23.6px", [10, 12, 14, 18, 24, 32, 48]), 24);
+  assert.equal(closestEditorFontSize("13px", [10, 12, 14, 18, 24, 32, 48]), 12);
 });

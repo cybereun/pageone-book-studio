@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { buildSinglePageJpegPdf, calculateCoverImagePlacement, calculateCoverSpec, calculatePreviewDimensions, clampZoom, isSupportedCoverImageFile, moveCustomTextPosition, removeCustomTextById, validateImportedImage } from "./lib/cover-spec.mjs";
-import { addManuscriptChapter, addManuscriptPage, buildTableOfContents, moveManuscriptChapter, plainTextFromEditorHtml, removeManuscriptChapter, removeManuscriptPage, sanitizeEditorHtml, toEditorHtml, updateManuscriptPage } from "./lib/manuscript.mjs";
+import { addManuscriptChapter, addManuscriptPage, buildTableOfContents, closestEditorFontSize, moveManuscriptChapter, plainTextFromEditorHtml, removeManuscriptChapter, removeManuscriptPage, sanitizeEditorHtml, toEditorHtml, updateManuscriptPage } from "./lib/manuscript.mjs";
 
 type Step = "cover" | "edit" | "publish";
 type Provider = "openai" | "gemini" | "claude";
@@ -575,6 +575,23 @@ export default function Home() {
     if (range && richEditorRef.current?.contains(range.commonAncestorContainer)) editorSelectionRef.current = range.cloneRange();
   }
 
+  function syncEditorToolbar() {
+    const selection = window.getSelection();
+    const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+    const editor = richEditorRef.current;
+    if (!range || !editor?.contains(range.commonAncestorContainer)) return;
+    editorSelectionRef.current = range.cloneRange();
+    const node = selection?.anchorNode;
+    const element = node?.nodeType === Node.ELEMENT_NODE ? node as Element : node?.parentElement;
+    if (!element) return;
+    const block = element.closest("h2, blockquote, p");
+    if (block) setParagraphStyle(block.tagName.toLowerCase());
+    const computed = window.getComputedStyle(element);
+    const matchedFont = manuscriptFonts.find((font) => computed.fontFamily.toLowerCase().includes(font.toLowerCase()));
+    if (matchedFont) setManuscriptFont(matchedFont);
+    setManuscriptFontSize(closestEditorFontSize(computed.fontSize, manuscriptFontSizes));
+  }
+
   function ensureEditorSelection() {
     if (!richEditorRef.current) return false;
     richEditorRef.current.focus();
@@ -904,7 +921,7 @@ export default function Home() {
                 <div className="running-head">{title}</div>
                 <input className="chapter-kicker-input" value={activeChapter.kicker} onChange={(event) => patchActiveChapter({ kicker: event.target.value })} aria-label="장 구분" />
                 <input className="chapter-title-input" value={activeChapter.title} onChange={(event) => patchActiveChapter({ title: event.target.value })} aria-label="장 제목" />
-                <div ref={richEditorRef} className="rich-manuscript-editor" contentEditable suppressContentEditableWarning role="textbox" aria-label="본문 원고" aria-multiline="true" data-placeholder="이 페이지의 원고를 작성하세요…" onInput={commitRichEditor} onMouseUp={rememberEditorSelection} onKeyUp={rememberEditorSelection} onBlur={rememberEditorSelection} />
+                <div ref={richEditorRef} className="rich-manuscript-editor" contentEditable suppressContentEditableWarning role="textbox" aria-label="본문 원고" aria-multiline="true" data-placeholder="이 페이지의 원고를 작성하세요…" onInput={commitRichEditor} onMouseUp={syncEditorToolbar} onKeyUp={syncEditorToolbar} onBlur={rememberEditorSelection} />
                 <div className="page-number">{activeBookPage}</div>
               </article>}
               <nav className="page-navigation" aria-label="본문 페이지 이동"><button disabled={activeFlatPageIndex <= 0} onClick={() => navigatePage(-1)}>← 이전</button><span>{editorView === "toc" ? "목차" : `${activeFlatPageIndex + 1} / ${manuscriptPageCount} 페이지`}</span><button disabled={activeFlatPageIndex >= flatPages.length - 1} onClick={() => navigatePage(1)}>다음 →</button></nav>
