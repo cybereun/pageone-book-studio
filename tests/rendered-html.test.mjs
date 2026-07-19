@@ -66,3 +66,27 @@ test("cover controls expose real editing and export actions", async () => {
   assert.match(coverRoute, /claude-sonnet-4-20250514/);
   assert.doesNotMatch(coverRoute, /gpt-image-2|claude-sonnet-5/);
 });
+
+test("manuscript editor exposes chapter, page, contents, and working AI actions", async () => {
+  const [page, css, writeRoute] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/ai/write/route.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(page, /목차 만들기/);
+  assert.match(page, /본문 페이지 추가/);
+  assert.match(page, /현재 페이지 삭제/);
+  assert.match(page, /장 순서 위로/);
+  assert.match(page, /장 삭제/);
+  assert.match(page, /AI 제안으로 교체/);
+  assert.match(page, /AI 제안을 뒤에 추가/);
+  assert.match(page, /setManuscript/);
+  assert.match(page, /buildTableOfContents/);
+  assert.match(css, /\.toc-page/);
+  assert.match(css, /\.page-navigation/);
+  assert.match(css, /\.chapter-actions/);
+  assert.match(writeRoute, /gpt-5\.4-mini/);
+  assert.match(writeRoute, /gemini-3\.5-flash/);
+  assert.match(writeRoute, /providerLabel/);
+  assert.match(writeRoute, /AI 요청에 실패했습니다/);
+});

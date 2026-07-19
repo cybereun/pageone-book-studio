@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { buildSinglePageJpegPdf, calculateCoverImagePlacement, calculateCoverSpec, calculatePreviewDimensions, clampZoom, isSupportedCoverImageFile, moveCustomTextPosition, removeCustomTextById, validateImportedImage } from "./lib/cover-spec.mjs";
+import { addManuscriptChapter, addManuscriptPage, buildTableOfContents, moveManuscriptChapter, removeManuscriptChapter, removeManuscriptPage, updateManuscriptPage } from "./lib/manuscript.mjs";
 
 type Step = "cover" | "edit" | "publish";
 type Provider = "openai" | "gemini" | "claude";
@@ -13,6 +14,9 @@ type EditorTool = "text" | "image" | "color" | "align" | null;
 type TextTarget = "title" | "subtitle" | "author" | "spineTitle" | "spineAuthor";
 type TextStyle = { fontFamily: string; fontSize: number; color: string; align: "left" | "center" | "right"; offsetX: number; offsetY: number };
 type CustomText = TextStyle & { id: number; text: string; x: number; y: number };
+type ManuscriptPage = { id: number; content: string };
+type ManuscriptChapter = { id: number; kicker: string; title: string; pages: ManuscriptPage[] };
+type EditorView = "page" | "toc";
 
 const defaultTextStyles: Record<TextTarget, TextStyle> = {
   title: { fontFamily: "Noto Serif KR", fontSize: 38, color: "#ffffff", align: "center", offsetX: 0, offsetY: 0 },
@@ -75,14 +79,14 @@ const aiProviders: Array<{ id: Provider; name: string; model: string; icon: stri
   { id: "claude", name: "Anthropic Claude", model: "Claude Sonnet", icon: "/ai-logos/anthropic.svg", link: "https://console.anthropic.com/settings/keys", color: "#d97757" },
 ];
 
-const chapters = [
-  { id: 1, kicker: "프롤로그", title: "시작하는 마음", pages: 3 },
-  { id: 2, kicker: "1장", title: "나만의 속도로 걷기", pages: 12 },
-  { id: 3, kicker: "2장", title: "작은 장면을 기록하는 법", pages: 16 },
-  { id: 4, kicker: "에필로그", title: "다시, 첫 페이지", pages: 4 },
-];
-
 const initialBody = `어떤 시작은 아주 조용하다.\n\n오래 미뤄 둔 문장을 적는 일, 오늘의 마음을 한 줄로 붙잡는 일. 이 책은 거창한 결심보다 그런 작은 움직임에서 태어났다.\n\n완벽한 문장을 기다리지 않기로 했다. 대신 지금의 나만 쓸 수 있는 이야기를, 나만의 속도로 한 장씩 쌓아 보기로 했다.`;
+
+const initialManuscript: ManuscriptChapter[] = [
+  { id: 1, kicker: "프롤로그", title: "시작하는 마음", pages: [{ id: 101, content: initialBody }] },
+  { id: 2, kicker: "1장", title: "나만의 속도로 걷기", pages: [{ id: 201, content: "빠르게 도착하는 것보다 나에게 맞는 걸음으로 계속 걷는 일이 중요했다.\n\n이 장에서는 비교를 멈추고 자신의 리듬을 발견하는 과정을 기록한다." }] },
+  { id: 3, kicker: "2장", title: "작은 장면을 기록하는 법", pages: [{ id: 301, content: "기억하고 싶은 장면은 대개 사소하다. 창가에 놓인 잔, 늦은 오후의 빛, 누군가의 짧은 인사처럼 금세 지나가는 것들이다." }] },
+  { id: 4, kicker: "에필로그", title: "다시, 첫 페이지", pages: [{ id: 401, content: "마지막 페이지는 다음 기록을 위한 첫 페이지이기도 하다." }] },
+];
 
 export default function Home() {
   const [step, setStep] = useState<Step>("cover");
@@ -96,9 +100,13 @@ export default function Home() {
   const [canvaFileName, setCanvaFileName] = useState("");
   const [canvaFileStatus, setCanvaFileStatus] = useState("");
   const [generating, setGenerating] = useState(false);
-  const [body, setBody] = useState(initialBody);
+  const [manuscript, setManuscript] = useState<ManuscriptChapter[]>(initialManuscript);
+  const [activeChapterId, setActiveChapterId] = useState(1);
+  const [activePageId, setActivePageId] = useState(101);
+  const [editorView, setEditorView] = useState<EditorView>("page");
   const [aiInput, setAiInput] = useState("첫 문단을 더 몰입감 있게 다듬어줘");
   const [aiReply, setAiReply] = useState("원고의 목소리는 그대로 두고, 문장의 호흡과 장면감을 섬세하게 다듬어 드릴게요.");
+  const [aiProviderLabel, setAiProviderLabel] = useState("준비됨");
   const [aiBusy, setAiBusy] = useState(false);
   const [saved, setSaved] = useState(true);
   const [toast, setToast] = useState("");
@@ -135,7 +143,8 @@ export default function Home() {
           setTitle(draft.title ?? title);
           setSubtitle(draft.subtitle ?? subtitle);
           setAuthor(draft.author ?? author);
-          setBody(draft.body ?? body);
+          if (Array.isArray(draft.manuscript) && draft.manuscript.length) setManuscript(draft.manuscript);
+          else if (typeof draft.body === "string") setManuscript(updateManuscriptPage(initialManuscript, 1, 101, draft.body));
           setCoverWorkflow(draft.coverWorkflow ?? "ai");
           setCoverSource(draft.coverSource ?? "starter");
           setCanvaFileName(draft.canvaFileName ?? "");
@@ -170,7 +179,7 @@ export default function Home() {
   useEffect(() => {
     const dirtyTimer = setTimeout(() => setSaved(false), 0);
     const timer = setTimeout(() => {
-      localStorage.setItem("pageone-draft", JSON.stringify({ title, subtitle, author, body, coverWorkflow, coverSource, canvaFileName, trimId, pageCount, hasFlaps, flapWidth, showSpineAuthor, textStyles, customTexts, backgroundColor, backgroundScale, backgroundX, backgroundY }));
+      localStorage.setItem("pageone-draft", JSON.stringify({ title, subtitle, author, manuscript, coverWorkflow, coverSource, canvaFileName, trimId, pageCount, hasFlaps, flapWidth, showSpineAuthor, textStyles, customTexts, backgroundColor, backgroundScale, backgroundX, backgroundY }));
       if (coverImage) storeCoverImage(coverImage).catch(() => undefined);
       setSaved(true);
     }, 600);
@@ -178,9 +187,18 @@ export default function Home() {
       clearTimeout(dirtyTimer);
       clearTimeout(timer);
     };
-  }, [title, subtitle, author, body, coverImage, coverWorkflow, coverSource, canvaFileName, trimId, pageCount, hasFlaps, flapWidth, showSpineAuthor, textStyles, customTexts, backgroundColor, backgroundScale, backgroundX, backgroundY]);
+  }, [title, subtitle, author, manuscript, coverImage, coverWorkflow, coverSource, canvaFileName, trimId, pageCount, hasFlaps, flapWidth, showSpineAuthor, textStyles, customTexts, backgroundColor, backgroundScale, backgroundX, backgroundY]);
 
-  const wordCount = useMemo(() => body.replace(/\s/g, "").length, [body]);
+  const activeChapter = manuscript.find((chapter) => chapter.id === activeChapterId) ?? manuscript[0];
+  const activePage = activeChapter.pages.find((page) => page.id === activePageId) ?? activeChapter.pages[0];
+  const tocEntries = useMemo(() => buildTableOfContents(manuscript, 3), [manuscript]);
+  const flatPages = useMemo(() => manuscript.flatMap((chapter) => chapter.pages.map((page) => ({ chapterId: chapter.id, pageId: page.id }))), [manuscript]);
+  const activeFlatPageIndex = flatPages.findIndex((page) => page.chapterId === activeChapter.id && page.pageId === activePage.id);
+  const activeTocEntry = tocEntries.find((entry: { chapterId: number }) => entry.chapterId === activeChapter.id);
+  const activePageIndex = activeChapter.pages.findIndex((page) => page.id === activePage.id);
+  const activeBookPage = (activeTocEntry?.startPage ?? 3) + Math.max(0, activePageIndex);
+  const wordCount = useMemo(() => manuscript.reduce((total, chapter) => total + chapter.pages.reduce((sum, page) => sum + page.content.replace(/\s/g, "").length, 0), 0), [manuscript]);
+  const manuscriptPageCount = flatPages.length;
   const trim = trimOptions.find((item) => item.id === trimId) ?? trimOptions[1];
   const coverSpec = calculateCoverSpec({ trimWidth: trim.width, trimHeight: trim.height, pageCount, hasFlaps, flapWidth });
   const { spineWidth, bleed, spreadWidth, spreadHeight } = coverSpec;
@@ -493,6 +511,79 @@ export default function Home() {
     setTimeout(() => setToast(""), 2200);
   }
 
+  function selectChapter(chapter: ManuscriptChapter) {
+    setActiveChapterId(chapter.id);
+    setActivePageId(chapter.pages[0].id);
+    setEditorView("page");
+  }
+
+  function createChapter() {
+    const next = addManuscriptChapter(manuscript) as ManuscriptChapter[];
+    setManuscript(next);
+    selectChapter(next[next.length - 1]);
+    setToast("새 장과 첫 본문 페이지를 만들었어요.");
+    setTimeout(() => setToast(""), 2200);
+  }
+
+  function deleteChapter(chapterId: number) {
+    const next = removeManuscriptChapter(manuscript, chapterId) as ManuscriptChapter[];
+    if (next === manuscript) setToast("책에는 최소 한 개의 장이 필요해요.");
+    else {
+      setManuscript(next);
+      if (activeChapterId === chapterId) selectChapter(next[0]);
+      setToast("장을 삭제했어요.");
+    }
+    setTimeout(() => setToast(""), 2200);
+  }
+
+  function moveChapter(chapterId: number, direction: -1 | 1) {
+    setManuscript(moveManuscriptChapter(manuscript, chapterId, direction) as ManuscriptChapter[]);
+  }
+
+  function patchActiveChapter(patch: Partial<Pick<ManuscriptChapter, "kicker" | "title">>) {
+    setManuscript((items) => items.map((chapter) => chapter.id === activeChapter.id ? { ...chapter, ...patch } : chapter));
+  }
+
+  function updateActivePage(content: string) {
+    setManuscript((items) => updateManuscriptPage(items, activeChapter.id, activePage.id, content) as ManuscriptChapter[]);
+  }
+
+  function createPage() {
+    const next = addManuscriptPage(manuscript, activeChapter.id, activePage.id) as ManuscriptChapter[];
+    const chapter = next.find((item) => item.id === activeChapter.id) ?? next[0];
+    const previousIndex = chapter.pages.findIndex((page) => page.id === activePage.id);
+    setManuscript(next);
+    setActivePageId(chapter.pages[previousIndex + 1].id);
+    setEditorView("page");
+    setToast("새 본문 페이지를 추가했어요.");
+    setTimeout(() => setToast(""), 2200);
+  }
+
+  function deletePage() {
+    const previousPages = activeChapter.pages;
+    const next = removeManuscriptPage(manuscript, activeChapter.id, activePage.id) as ManuscriptChapter[];
+    const chapter = next.find((item) => item.id === activeChapter.id) ?? next[0];
+    const previousIndex = previousPages.findIndex((page) => page.id === activePage.id);
+    setManuscript(next);
+    setActivePageId(chapter.pages[Math.min(previousIndex, chapter.pages.length - 1)].id);
+    setToast(previousPages.length === 1 ? "마지막 페이지의 내용을 비웠어요." : "현재 페이지를 삭제했어요.");
+    setTimeout(() => setToast(""), 2200);
+  }
+
+  function navigatePage(direction: -1 | 1) {
+    const target = flatPages[activeFlatPageIndex + direction];
+    if (!target) return;
+    setActiveChapterId(target.chapterId);
+    setActivePageId(target.pageId);
+    setEditorView("page");
+  }
+
+  function showTableOfContents() {
+    setEditorView("toc");
+    setToast("현재 장과 페이지 순서로 목차를 만들었어요.");
+    setTimeout(() => setToast(""), 2200);
+  }
+
   async function askAi(action?: string) {
     setAiBusy(true);
     const request = action ?? aiInput;
@@ -500,21 +591,24 @@ export default function Home() {
       const res = await fetch("/api/ai/write", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ request, text: body, title, provider, apiKeys }),
+        body: JSON.stringify({ request, text: activePage.content, title, chapterTitle: activeChapter.title, pageNumber: activeBookPage, provider, apiKeys }),
       });
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "AI 요청에 실패했습니다.");
       setAiReply(data.text);
+      setAiProviderLabel(data.providerLabel || (data.demo ? "체험 제안" : "AI 제안"));
     } catch {
-      setAiReply("잠시 연결이 원활하지 않아요. 문장을 유지한 채 잠시 후 다시 시도해 주세요.");
+      setAiReply("잠시 연결이 원활하지 않아요. API 설정에서 키 연결을 확인한 뒤 다시 시도해 주세요.");
+      setAiProviderLabel("연결 확인 필요");
     } finally {
       setAiBusy(false);
     }
   }
 
-  function applyAi() {
+  function applyAi(mode: "replace" | "append") {
     if (!aiReply) return;
-    setBody((value) => `${value}\n\n${aiReply}`);
-    setToast("AI 제안을 원고 끝에 추가했어요.");
+    updateActivePage(mode === "replace" ? aiReply : `${activePage.content}${activePage.content ? "\n\n" : ""}${aiReply}`);
+    setToast(mode === "replace" ? "현재 페이지를 AI 제안으로 교체했어요." : "AI 제안을 현재 페이지 뒤에 추가했어요.");
     setTimeout(() => setToast(""), 2600);
   }
 
@@ -697,50 +791,58 @@ export default function Home() {
       {step === "edit" && (
         <section className="workspace editor-workspace">
           <aside className="chapter-panel">
-            <div className="chapter-head"><b>목차</b><button aria-label="장 추가">＋</button></div>
-            {chapters.map((chapter, index) => (
-              <button key={chapter.id} className={index === 0 ? "chapter active" : "chapter"}>
-                <span>{chapter.kicker}</span><b>{chapter.title}</b><small>{chapter.pages}쪽</small>
-              </button>
-            ))}
-            <button className="add-chapter">＋ 새 장 추가</button>
+            <div className="chapter-head"><div><b>책 구성</b><small>{manuscript.length}개 장 · {manuscriptPageCount}쪽</small></div><button aria-label="장 추가" onClick={createChapter}>＋</button></div>
+            <button className={editorView === "toc" ? "toc-builder active" : "toc-builder"} onClick={showTableOfContents}><span>☷</span><b>목차 만들기</b><small>현재 순서로 자동 생성</small></button>
+            <div className="chapter-list">
+              {manuscript.map((chapter, index) => (
+                <article key={chapter.id} className={editorView === "page" && activeChapter.id === chapter.id ? "chapter-card active" : "chapter-card"}>
+                  <button className="chapter" onClick={() => selectChapter(chapter)}><span>{chapter.kicker}</span><b>{chapter.title}</b><small>{chapter.pages.length}쪽</small></button>
+                  <div className="chapter-actions"><button aria-label="장 순서 위로" disabled={index === 0} onClick={() => moveChapter(chapter.id, -1)}>↑</button><button aria-label="장 순서 아래로" disabled={index === manuscript.length - 1} onClick={() => moveChapter(chapter.id, 1)}>↓</button><button aria-label="장 삭제" disabled={manuscript.length === 1} onClick={() => deleteChapter(chapter.id)}>×</button></div>
+                </article>
+              ))}
+            </div>
+            <button className="add-chapter" onClick={createChapter}>＋ 새 장 추가</button>
           </aside>
 
           <div className="editor-zone">
             <div className="editor-toolbar">
               <select aria-label="본문 스타일" defaultValue="본문"><option>본문</option><option>제목 1</option><option>인용문</option></select>
-              <button><b>B</b></button><button><i>I</i></button><button><u>U</u></button><span />
-              <button>≡</button><button>☷</button><button>❝</button><span />
-              <button>↶</button><button>↷</button>
-              <small>{wordCount.toLocaleString()}자 · 약 {Math.max(1, Math.ceil(wordCount / 700))}쪽</small>
+              <button type="button" title="굵게"><b>B</b></button><button type="button" title="기울임"><i>I</i></button><button type="button" title="밑줄"><u>U</u></button><span />
+              <button type="button" onClick={showTableOfContents}>☷ 목차</button><button type="button" className="add-page-toolbar" onClick={createPage}>＋ 본문 페이지 추가</button><button type="button" className="delete-page-toolbar" onClick={deletePage}>현재 페이지 삭제</button>
+              <small>{wordCount.toLocaleString()}자 · 실제 {manuscriptPageCount}쪽</small>
             </div>
             <div className="page-desk">
-              <article className="manuscript-page print-page">
-                <div className="running-head">느리게 쓰는 마음</div>
-                <span className="chapter-kicker">프롤로그</span>
-                <input className="chapter-title-input" defaultValue="시작하는 마음" aria-label="장 제목" />
-                <textarea value={body} onChange={(e) => setBody(e.target.value)} aria-label="본문 원고" />
-                <div className="page-number">3</div>
-              </article>
+              {editorView === "toc" ? <article className="manuscript-page toc-page">
+                <div className="running-head">{title}</div><span className="chapter-kicker">CONTENTS</span><h2>목차</h2>
+                <div className="toc-list">{tocEntries.map((entry: { chapterId: number; kicker: string; title: string; startPage: number; pageCount: number }) => <button key={entry.chapterId} onClick={() => selectChapter(manuscript.find((chapter) => chapter.id === entry.chapterId) ?? manuscript[0])}><span>{entry.kicker}</span><b>{entry.title}</b><i /><strong>{entry.startPage}</strong></button>)}</div>
+                <p className="toc-note">장과 페이지 순서를 바꾸면 목차와 쪽 번호가 자동으로 갱신됩니다.</p>
+              </article> : <article className="manuscript-page print-page">
+                <div className="running-head">{title}</div>
+                <input className="chapter-kicker-input" value={activeChapter.kicker} onChange={(event) => patchActiveChapter({ kicker: event.target.value })} aria-label="장 구분" />
+                <input className="chapter-title-input" value={activeChapter.title} onChange={(event) => patchActiveChapter({ title: event.target.value })} aria-label="장 제목" />
+                <textarea value={activePage.content} onChange={(event) => updateActivePage(event.target.value)} aria-label="본문 원고" placeholder="이 페이지의 원고를 작성하세요…" />
+                <div className="page-number">{activeBookPage}</div>
+              </article>}
+              <nav className="page-navigation" aria-label="본문 페이지 이동"><button disabled={activeFlatPageIndex <= 0} onClick={() => navigatePage(-1)}>← 이전</button><span>{editorView === "toc" ? "목차" : `${activeFlatPageIndex + 1} / ${manuscriptPageCount} 페이지`}</span><button disabled={activeFlatPageIndex >= flatPages.length - 1} onClick={() => navigatePage(1)}>다음 →</button></nav>
             </div>
           </div>
 
           <aside className="ai-panel">
             <div className="ai-title"><div className="ai-orb">✦</div><div><b>페이지 AI</b><span>당신의 글쓰기 파트너</span></div><span className="online" /></div>
-            <div className="ai-context"><span>현재 읽는 중</span><b>프롤로그 · 시작하는 마음</b></div>
+            <div className="ai-context"><span>현재 읽는 중 · {activeBookPage}쪽</span><b>{activeChapter.kicker} · {activeChapter.title}</b></div>
             <div className="provider-picker compact" aria-label="글쓰기 AI 선택">
               <button className={provider === "auto" ? "active" : ""} onClick={() => setProvider("auto")}>✦ 자동</button>
               {aiProviders.map((item) => <button key={item.id} className={provider === item.id ? "active" : ""} onClick={() => setProvider(item.id)}><Image src={item.icon} alt="" width={16} height={16} />{item.name.split(" ").slice(-1)[0]}</button>)}
             </div>
             <p className="ai-greeting">어떤 도움이 필요하세요? 문장을 다듬거나, 다음 내용을 함께 구상할 수 있어요.</p>
             <div className="quick-actions">
-              <button onClick={() => askAi("현재 원고의 문체와 사실을 유지하며 더 자연스럽고 몰입감 있게 다듬어줘")}>✦ 문장 다듬기</button>
-              <button onClick={() => askAi("현재 원고 다음에 이어질 한 문단을 같은 문체로 제안해줘")}>＋ 이어쓰기</button>
-              <button onClick={() => askAi("현재 글의 핵심은 유지하고 표현을 더 풍부하게 바꿔줘")}>◈ 표현 풍부하게</button>
-              <button onClick={() => askAi("현재 원고에 어울리는 장 제목 3개를 제안해줘")}>⌁ 제목 제안</button>
+              <button disabled={aiBusy} onClick={() => askAi("현재 페이지 원고의 문체와 사실을 유지하며 전체를 더 자연스럽고 몰입감 있게 다듬어줘")}>✦ 문장 다듬기</button>
+              <button disabled={aiBusy} onClick={() => askAi("현재 페이지 다음에 이어질 한 문단을 같은 문체로 작성해줘")}>＋ 이어쓰기</button>
+              <button disabled={aiBusy} onClick={() => askAi("현재 페이지의 핵심은 유지하고 표현을 더 풍부하게 바꿔줘")}>◈ 표현 풍부하게</button>
+              <button disabled={aiBusy} onClick={() => askAi("현재 장과 원고에 어울리는 장 제목 3개를 제안해줘")}>⌁ 제목 제안</button>
             </div>
-            <div className="ai-response"><span>AI 제안</span><p>{aiBusy ? "원고의 결을 읽고 있어요…" : aiReply}</p><button onClick={applyAi}>원고에 추가</button></div>
-            <div className="ai-compose"><textarea rows={3} value={aiInput} onChange={(e) => setAiInput(e.target.value)} placeholder="AI에게 요청하세요…" /><button onClick={() => askAi()} disabled={aiBusy}>↑</button></div>
+            <div className="ai-response"><span>{aiProviderLabel}</span><p>{aiBusy ? "현재 페이지의 문체와 흐름을 읽고 있어요…" : aiReply}</p><div><button disabled={aiBusy} onClick={() => applyAi("replace")}>AI 제안으로 교체</button><button disabled={aiBusy} onClick={() => applyAi("append")}>AI 제안을 뒤에 추가</button></div></div>
+            <div className="ai-compose"><textarea rows={3} value={aiInput} onChange={(e) => setAiInput(e.target.value)} placeholder="현재 페이지에 대해 AI에게 요청하세요…" onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === "Enter") askAi(); }} /><button aria-label="AI에게 보내기" onClick={() => askAi()} disabled={aiBusy}>↑</button></div>
             <small>AI가 만든 내용은 꼭 검토해 주세요.</small>
           </aside>
         </section>
@@ -763,6 +865,11 @@ export default function Home() {
           </aside>
         </section>
       )}
+
+      <section className="print-manuscript" aria-hidden="true">
+        <article className="manuscript-page toc-page"><div className="running-head">{title}</div><span className="chapter-kicker">CONTENTS</span><h2>목차</h2><div className="toc-list">{tocEntries.map((entry: { chapterId: number; kicker: string; title: string; startPage: number }) => <div key={entry.chapterId}><span>{entry.kicker}</span><b>{entry.title}</b><i /><strong>{entry.startPage}</strong></div>)}</div></article>
+        {manuscript.flatMap((chapter) => chapter.pages.map((page, index) => <article className="manuscript-page" key={page.id}><div className="running-head">{title}</div>{index === 0 && <><span className="chapter-kicker">{chapter.kicker}</span><h2>{chapter.title}</h2></>}<div className="print-page-body">{page.content.split("\n").map((paragraph, paragraphIndex) => <p key={`${page.id}-${paragraphIndex}`}>{paragraph || "\u00a0"}</p>)}</div><div className="page-number">{(tocEntries.find((entry: { chapterId: number }) => entry.chapterId === chapter.id)?.startPage ?? 3) + index}</div></article>))}
+      </section>
 
       {toast && <div className="toast">{toast}</div>}
       {settingsOpen && (
