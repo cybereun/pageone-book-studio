@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
-import { buildSinglePageJpegPdf, calculateCoverImagePlacement, calculateCoverSpec, clampZoom, isSupportedCoverImageFile, moveCustomTextPosition, removeCustomTextById, validateImportedImage } from "./lib/cover-spec.mjs";
+import { buildSinglePageJpegPdf, calculateCoverImagePlacement, calculateCoverSpec, calculatePreviewDimensions, clampZoom, isSupportedCoverImageFile, moveCustomTextPosition, removeCustomTextById, validateImportedImage } from "./lib/cover-spec.mjs";
 
 type Step = "cover" | "edit" | "publish";
 type Provider = "openai" | "gemini" | "claude";
@@ -179,6 +179,7 @@ export default function Home() {
   const coverSpec = calculateCoverSpec({ trimWidth: trim.width, trimHeight: trim.height, pageCount, hasFlaps, flapWidth });
   const { spineWidth, bleed, spreadWidth, spreadHeight } = coverSpec;
   const outputPixels = { width: coverSpec.pixelWidth, height: coverSpec.pixelHeight };
+  const previewSize = calculatePreviewDimensions({ zoom, spreadWidth, spreadHeight, baseWidth: 960 });
   const spreadColumns = hasFlaps
     ? `${flapWidth}fr ${trim.width}fr ${spineWidth}fr ${trim.width}fr ${flapWidth}fr`
     : `${trim.width}fr ${spineWidth}fr ${trim.width}fr`;
@@ -633,9 +634,9 @@ export default function Home() {
           <div className="canvas-zone">
             <div className="canvas-head"><span>전체 표지 전개도</span>{coverSource !== "starter" && <em className={`cover-source ${coverSource}`}>{coverSource === "canva" ? "Canva 적용됨" : "AI 적용됨"}</em>}<div className="spread-meta"><b>{trim.label}</b><span>{pageCount}P</span><span>책등 {spineWidth.toFixed(2)}mm</span></div><button className={showGuides ? "guide-toggle active" : "guide-toggle"} onClick={() => setShowGuides((value) => !value)}>가이드 {showGuides ? "ON" : "OFF"}</button><div className="zoom"><button aria-label="축소" onClick={() => setZoom((value) => clampZoom(value - 10))}>−</button><output>{zoom}%</output><button aria-label="확대" onClick={() => setZoom((value) => clampZoom(value + 10))}>＋</button></div></div>
             <div className="cover-stage">
-              <div className="artboard-shell" style={{ width: `${zoom}%` }}>
+              <div className="artboard-shell" style={{ width: `${previewSize.width}px` }}>
               <div className="ruler ruler-top"><span>0</span><span>{Math.round(spreadWidth / 4)}</span><span>{Math.round(spreadWidth / 2)}</span><span>{Math.round(spreadWidth * 0.75)}</span><span>{Math.round(spreadWidth)}mm</span></div>
-              <div className={`cover-spread ${coverImage ? "has-image" : ""}`} style={{ aspectRatio: `${spreadWidth} / ${spreadHeight}`, gridTemplateColumns: spreadColumns, backgroundColor } as React.CSSProperties}>
+              <div className={`cover-spread ${coverImage ? "has-image" : ""}`} style={{ width: `${previewSize.width}px`, height: `${previewSize.height}px`, gridTemplateColumns: spreadColumns, backgroundColor } as React.CSSProperties}>
                 {coverImage && <Image src={coverImage} alt="" fill unoptimized className="cover-background-image" style={{ objectPosition: `${backgroundX}% ${backgroundY}%`, transform: `scale(${backgroundScale / 100})` }} />}
                 <div className="cover-grain" />
                 {showGuides && <><div className="bleed-guide" /><div className="safe-guide" /></>}

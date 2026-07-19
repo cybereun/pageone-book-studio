@@ -32,6 +32,13 @@ test("clamps cover zoom to useful bounds", async () => {
   assert.equal(clampZoom(200), 140);
 });
 
+test("calculates preview width and height from the same zoom factor", async () => {
+  const { calculatePreviewDimensions } = await import(moduleUrl.href);
+  assert.deepEqual(calculatePreviewDimensions({ zoom: 140, spreadWidth: 267.1, spreadHeight: 194, baseWidth: 960 }), { width: 1344, height: 976.17 });
+  const dimensions = calculatePreviewDimensions({ zoom: 80, spreadWidth: 309.1, spreadHeight: 216, baseWidth: 960 });
+  assert.ok(Math.abs(dimensions.width / dimensions.height - 309.1 / 216) < 0.00001);
+});
+
 test("validates ratio and resolution independently", async () => {
   const { validateImportedImage } = await import(moduleUrl.href);
   assert.deepEqual(validateImportedImage({ width: 3651, height: 2551, targetWidth: 3651, targetHeight: 2551 }), { ratioOk: true, resolutionOk: true });

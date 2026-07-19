@@ -39,6 +39,8 @@ test("cover controls expose real editing and export actions", async () => {
   assert.match(page, /currentTarget\.value = ""/);
   assert.match(page, /aria-live="polite"/);
   assert.match(page, /className="cover-background-image"/);
+  assert.match(page, /width: `\$\{previewSize\.width\}px`/);
+  assert.match(page, /height: `\$\{previewSize\.height\}px`/);
   assert.doesNotMatch(page, /normalizeCoverImage/);
   assert.match(css, /editor-popover/);
   assert.match(css, /custom-color-grid/);

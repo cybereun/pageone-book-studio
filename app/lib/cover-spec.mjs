@@ -24,6 +24,12 @@ export function clampZoom(value) {
   return Math.min(140, Math.max(50, Number(value) || 80));
 }
 
+export function calculatePreviewDimensions({ zoom, spreadWidth, spreadHeight, baseWidth = 960 }) {
+  const width = Number((Number(baseWidth) * clampZoom(zoom) / 100).toFixed(2));
+  const height = Number((width * Number(spreadHeight) / Number(spreadWidth)).toFixed(2));
+  return { width, height };
+}
+
 export function validateImportedImage({ width, height, targetWidth, targetHeight }) {
   const expectedRatio = targetWidth / targetHeight;
   const actualRatio = width / height;
