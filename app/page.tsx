@@ -47,6 +47,12 @@ async function storeCoverImage(value: string) {
   transaction.objectStore("covers").put(value, "current");
 }
 
+async function deleteStoredCoverImage() {
+  const database = await coverDatabase();
+  const transaction = database.transaction("covers", "readwrite");
+  transaction.objectStore("covers").delete("current");
+}
+
 async function restoreCoverImage() {
   const database = await coverDatabase();
   return new Promise<string>((resolve) => {
@@ -474,6 +480,19 @@ export default function Home() {
     importCanvaCover(file, source);
   }
 
+  function removeCoverImage() {
+    setCoverImage("");
+    setCoverSource("starter");
+    setCanvaFileName("");
+    setCanvaFileStatus("첨부 이미지를 삭제했어요.");
+    setBackgroundScale(100);
+    setBackgroundX(50);
+    setBackgroundY(50);
+    deleteStoredCoverImage().catch(() => undefined);
+    setToast("첨부 이미지를 삭제했어요.");
+    setTimeout(() => setToast(""), 2200);
+  }
+
   async function askAi(action?: string) {
     setAiBusy(true);
     const request = action ?? aiInput;
@@ -628,6 +647,7 @@ export default function Home() {
                 <span>{canvaFileName ? "✓" : "↑"}</span><b>{canvaFileName || "Canva 표지 파일 선택"}</b><small>PNG · JPG · WEBP</small>
               </label>
               {canvaFileStatus && <p aria-live="polite" className={canvaFileStatus.includes("완료") || canvaFileStatus.includes("적용했어요") ? "canva-status success" : "canva-status"}>{canvaFileStatus}</p>}
+              {coverImage && <button type="button" className="remove-cover-image" onClick={removeCoverImage}>첨부 이미지 삭제</button>}
             </section>}
           </aside>
 
@@ -647,17 +667,19 @@ export default function Home() {
                 {hasFlaps && <section className="spread-flap flap-right"><small>날개 {flapWidth}mm</small><p>책 속의 문장과 출판 정보를 담는 공간</p></section>}
               </div>
               <div className="spread-caption"><span>← 뒤표지</span><b>{spineWidth.toFixed(2)}mm</b><span>앞표지 →</span></div>
-              </div>
+              <div className="artboard-controls">
               <div className="cover-tools">
                 <button className={activeTool === "text" ? "active" : ""} title="텍스트 추가" onClick={() => setActiveTool(activeTool === "text" ? null : "text")}>T</button><button className={activeTool === "image" ? "active" : ""} title="이미지 배치" onClick={() => setActiveTool(activeTool === "image" ? null : "image")}>▧</button><button className={activeTool === "color" ? "active" : ""} title="색상 변경" onClick={() => setActiveTool(activeTool === "color" ? null : "color")}>◐</button><button className={activeTool === "align" ? "active" : ""} title="정렬" onClick={() => setActiveTool(activeTool === "align" ? null : "align")}>↔</button>
               </div>
               {activeTool && <div className="editor-popover">
                 <div className="editor-popover-head"><b>{activeTool === "text" ? "텍스트 편집" : activeTool === "image" ? "배경 이미지" : activeTool === "color" ? "표지 색상" : "위치와 정렬"}</b><button aria-label="편집 도구 닫기" onClick={() => setActiveTool(null)}>×</button></div>
                 {activeTool === "text" && <>{selectedCustomTextId === null ? <label>편집 대상<select value={selectedText} onChange={(event) => selectBuiltInText(event.target.value as TextTarget)}><option value="title">앞표지 제목</option><option value="subtitle">부제</option><option value="author">저자명</option><option value="spineTitle">책등 제목</option><option value="spineAuthor">책등 작가명</option></select></label> : <div className="custom-text-selected"><span>추가 텍스트 편집 중</span><button onClick={() => setSelectedCustomTextId(null)}>기본 텍스트 선택</button></div>}<label>글꼴<select value={activeTextStyle.fontFamily} onChange={(event) => patchTextStyle({ fontFamily: event.target.value })}><option>Noto Serif KR</option><option>Noto Sans KR</option><option>Georgia</option><option>Arial</option></select></label><label>크기<input type="range" min="5" max="56" value={activeTextStyle.fontSize} onChange={(event) => patchTextStyle({ fontSize: Number(event.target.value) })} /><output>{activeTextStyle.fontSize}px</output></label><label>글자색<input type="color" value={activeTextStyle.color} onChange={(event) => patchTextStyle({ color: event.target.value })} /></label>{selectedCustomTextId !== null && <button className="delete-text-button" onClick={() => deleteCustomText(selectedCustomTextId)}>추가 텍스트 삭제</button>}<button className="add-text-button" onClick={addCustomText}>＋ 텍스트 추가</button></>}
-                {activeTool === "image" && <><label className="image-replace">이미지 교체<input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => handleCoverFileChange(event, "ai")} /></label>{canvaFileStatus && <small className="image-import-status" aria-live="polite">{canvaFileStatus}</small>}<label>확대<input type="range" min="100" max="200" value={backgroundScale} onChange={(event) => setBackgroundScale(Number(event.target.value))} /><output>{backgroundScale}%</output></label><label>가로 위치<input type="range" min="0" max="100" value={backgroundX} onChange={(event) => setBackgroundX(Number(event.target.value))} /></label><label>세로 위치<input type="range" min="0" max="100" value={backgroundY} onChange={(event) => setBackgroundY(Number(event.target.value))} /></label></>}
+                {activeTool === "image" && <><label className="image-replace">이미지 교체<input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => handleCoverFileChange(event, "ai")} /></label>{coverImage && <button type="button" className="remove-cover-image" onClick={removeCoverImage}>첨부 이미지 삭제</button>}{canvaFileStatus && <small className="image-import-status" aria-live="polite">{canvaFileStatus}</small>}<label>확대<input type="range" min="100" max="200" value={backgroundScale} onChange={(event) => setBackgroundScale(Number(event.target.value))} /><output>{backgroundScale}%</output></label><label>가로 위치<input type="range" min="0" max="100" value={backgroundX} onChange={(event) => setBackgroundX(Number(event.target.value))} /></label><label>세로 위치<input type="range" min="0" max="100" value={backgroundY} onChange={(event) => setBackgroundY(Number(event.target.value))} /></label></>}
                 {activeTool === "color" && <><label>배경색<input type="color" value={backgroundColor} onChange={(event) => setBackgroundColor(event.target.value)} /></label><div className="color-swatches">{["#d95b42", "#182a3b", "#315447", "#ede5d4", "#2a2028"].map((color) => <button key={color} className={backgroundColor === color ? "active" : ""} aria-label={`${color} 색상`} style={{ background: color }} onClick={() => setBackgroundColor(color)} />)}</div><button type="button" className="custom-color-trigger" aria-expanded={customColorsOpen} onClick={() => setCustomColorsOpen((open) => !open)}><span>사용자 색상</span><b>{customColorsOpen ? "접기" : "다양한 색상 보기"}</b></button>{customColorsOpen && <div className="custom-color-panel" role="group" aria-label="사용자 색상 선택"><div className="custom-color-grid">{coverColorPalette.map((color) => <button type="button" key={color} className={backgroundColor === color ? "active" : ""} aria-label={`${color} 사용자 색상`} title={color.toUpperCase()} style={{ background: color }} onClick={() => setBackgroundColor(color)} />)}</div><label className="custom-color-picker">직접 선택<input type="color" value={backgroundColor} onChange={(event) => setBackgroundColor(event.target.value)} /><output>{backgroundColor.toUpperCase()}</output></label></div>}</>}
                 {activeTool === "align" && <><div className="align-buttons"><button onClick={() => patchTextStyle({ align: "left" })}>왼쪽</button><button onClick={() => patchTextStyle({ align: "center" })}>가운데</button><button onClick={() => patchTextStyle({ align: "right" })}>오른쪽</button></div><div className="nudge-buttons"><button aria-label="위로 이동" onClick={() => nudgeSelectedText(0, -2)}>↑</button><button aria-label="왼쪽으로 이동" onClick={() => nudgeSelectedText(-2, 0)}>←</button><button aria-label="위치 초기화" onClick={resetSelectedTextPosition}>•</button><button aria-label="오른쪽으로 이동" onClick={() => nudgeSelectedText(2, 0)}>→</button><button aria-label="아래로 이동" onClick={() => nudgeSelectedText(0, 2)}>↓</button></div></>}
               </div>}
+              </div>
+              </div>
             </div>
             <div className="canvas-footer"><span>{trim.label} {trim.width}×{trim.height}mm · {pageCount}P · 책등 {spineWidth.toFixed(2)}mm · {hasFlaps ? `날개 ${flapWidth}mm` : "날개 없음"}</span><div><button onClick={downloadPrintPng}>300 DPI PNG</button><button onClick={downloadPrintPdf}>인쇄용 PDF</button></div><span>전체 {spreadWidth}×{spreadHeight}mm · {outputPixels.width.toLocaleString()}×{outputPixels.height.toLocaleString()}px</span></div>
           </div>

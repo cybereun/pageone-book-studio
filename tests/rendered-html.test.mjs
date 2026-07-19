@@ -44,6 +44,9 @@ test("cover controls expose real editing and export actions", async () => {
   assert.doesNotMatch(page, /new Image\(\)/);
   assert.equal((page.match(/new window\.Image\(\)/g) || []).length, 2);
   assert.doesNotMatch(page, /normalizeCoverImage/);
+  assert.match(page, /deleteStoredCoverImage/);
+  assert.equal((page.match(/첨부 이미지 삭제/g) || []).length, 2);
+  assert.match(page, /className="artboard-controls"/);
   assert.match(css, /editor-popover/);
   assert.match(css, /custom-color-grid/);
   assert.match(css, /\.cover-stage\{[^}]*overflow:auto/);
@@ -51,6 +54,8 @@ test("cover controls expose real editing and export actions", async () => {
   assert.match(css, /\.artboard-shell\{[^}]*margin:0 auto/);
   assert.match(css, /\.cover-background-image/);
   assert.match(css, /\.artboard-shell \.cover-spread\{[^}]*max-height:none/);
+  assert.match(css, /\.artboard-shell \.artboard-controls\{[^}]*left:calc\(100% \+ 14px\)/);
+  assert.match(css, /\.artboard-controls \.cover-tools\{[^}]*position:static/);
   assert.match(coverRoute, /gpt-image-1/);
   assert.match(coverRoute, /gemini-3\.1-flash-image/);
   assert.match(coverRoute, /claude-sonnet-4-20250514/);
