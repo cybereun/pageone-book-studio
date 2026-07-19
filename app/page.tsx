@@ -4,6 +4,14 @@ import { useEffect, useMemo, useState } from "react";
 
 type Step = "cover" | "edit" | "publish";
 type Provider = "openai" | "gemini" | "claude";
+type TrimId = "46" | "A5" | "B5" | "A4";
+
+const trimOptions: Array<{ id: TrimId; label: string; width: number; height: number; use: string }> = [
+  { id: "46", label: "46판", width: 127, height: 188, use: "시 · 에세이" },
+  { id: "A5", label: "A5", width: 148, height: 210, use: "소설 · 에세이" },
+  { id: "B5", label: "B5", width: 182, height: 257, use: "문제지 · 잡지" },
+  { id: "A4", label: "A4", width: 210, height: 297, use: "문제지 · 화보" },
+];
 
 const aiProviders: Array<{ id: Provider; name: string; model: string; icon: string; link: string; color: string }> = [
   { id: "openai", name: "OpenAI", model: "GPT · Image", icon: "/ai-logos/openai.svg", link: "https://platform.openai.com/api-keys", color: "#202724" },
@@ -34,11 +42,15 @@ export default function Home() {
   const [aiBusy, setAiBusy] = useState(false);
   const [saved, setSaved] = useState(true);
   const [toast, setToast] = useState("");
-  const [format, setFormat] = useState("A5");
   const [provider, setProvider] = useState("auto");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [apiKeys, setApiKeys] = useState<Record<Provider, string>>({ openai: "", gemini: "", claude: "" });
   const [keyStatus, setKeyStatus] = useState<Record<Provider, "idle" | "testing" | "success" | "error">>({ openai: "idle", gemini: "idle", claude: "idle" });
+  const [trimId, setTrimId] = useState<TrimId>("A5");
+  const [pageCount, setPageCount] = useState(100);
+  const [hasFlaps, setHasFlaps] = useState(false);
+  const [flapWidth, setFlapWidth] = useState(90);
+  const [showGuides, setShowGuides] = useState(true);
 
   useEffect(() => {
     const cached = localStorage.getItem("pageone-draft");
@@ -50,6 +62,10 @@ export default function Home() {
         setAuthor(draft.author ?? author);
         setBody(draft.body ?? body);
         setCoverImage(draft.coverImage ?? "");
+        setTrimId(draft.trimId ?? "A5");
+        setPageCount(draft.pageCount ?? 100);
+        setHasFlaps(draft.hasFlaps ?? false);
+        setFlapWidth(draft.flapWidth ?? 90);
       } catch { /* keep the starter manuscript */ }
     }
     const savedKeys = sessionStorage.getItem("pageone-api-keys");
@@ -62,13 +78,22 @@ export default function Home() {
   useEffect(() => {
     setSaved(false);
     const timer = setTimeout(() => {
-      localStorage.setItem("pageone-draft", JSON.stringify({ title, subtitle, author, body, coverImage }));
+      localStorage.setItem("pageone-draft", JSON.stringify({ title, subtitle, author, body, coverImage, trimId, pageCount, hasFlaps, flapWidth }));
       setSaved(true);
     }, 600);
     return () => clearTimeout(timer);
-  }, [title, subtitle, author, body, coverImage]);
+  }, [title, subtitle, author, body, coverImage, trimId, pageCount, hasFlaps, flapWidth]);
 
   const wordCount = useMemo(() => body.replace(/\s/g, "").length, [body]);
+  const trim = trimOptions.find((item) => item.id === trimId) ?? trimOptions[1];
+  const spineWidth = Number((pageCount * 0.055 + 1.6).toFixed(2));
+  const bleed = 3;
+  const spreadWidth = Number((trim.width * 2 + spineWidth + bleed * 2 + (hasFlaps ? flapWidth * 2 : 0)).toFixed(2));
+  const spreadHeight = trim.height + bleed * 2;
+  const outputPixels = { width: Math.round((spreadWidth / 25.4) * 300), height: Math.round((spreadHeight / 25.4) * 300) };
+  const spreadColumns = hasFlaps
+    ? `${flapWidth}fr ${trim.width}fr ${spineWidth}fr ${trim.width}fr ${flapWidth}fr`
+    : `${trim.width}fr ${spineWidth}fr ${trim.width}fr`;
 
   async function generateCover() {
     setGenerating(true);
@@ -76,7 +101,10 @@ export default function Home() {
       const res = await fetch("/api/ai/cover", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: coverPrompt, title, subtitle, author, provider, apiKeys }),
+        body: JSON.stringify({
+          prompt: coverPrompt, title, subtitle, author, provider, apiKeys,
+          spec: { trimId, trimWidth: trim.width, trimHeight: trim.height, pageCount, spineWidth, hasFlaps, flapWidth: hasFlaps ? flapWidth : 0, bleed, spreadWidth, spreadHeight },
+        }),
       });
       const data = await res.json();
       if (data.image) setCoverImage(data.image);
@@ -185,6 +213,29 @@ export default function Home() {
             <label>책 제목<input value={title} onChange={(e) => setTitle(e.target.value)} /></label>
             <label>부제<input value={subtitle} onChange={(e) => setSubtitle(e.target.value)} /></label>
             <label>저자명<input value={author} onChange={(e) => setAuthor(e.target.value)} /></label>
+            <section className="book-spec-card">
+              <div className="spec-heading"><div><span className="eyebrow">PRINT FORMAT</span><h3>책 규격을 선택해 주세요</h3></div><em>{trim.label} · {trim.width}×{trim.height}mm</em></div>
+              <div className="trim-picker" role="radiogroup" aria-label="책 판형 선택">
+                {trimOptions.map((item) => (
+                  <button key={item.id} role="radio" aria-checked={trimId === item.id} className={trimId === item.id ? "active" : ""} onClick={() => setTrimId(item.id)}>
+                    <span className="trim-visual"><i style={{ width: `${Math.round(31 + (item.width - 127) * 0.18)}px`, height: `${Math.round(47 + (item.height - 188) * 0.22)}px` }}>{item.label}</i></span>
+                    <b>{item.label}</b><small>{item.width} × {item.height}mm</small><small>{item.use}</small>
+                  </button>
+                ))}
+              </div>
+              <div className="flap-heading">책 날개를 선택해 주세요</div>
+              <div className="flap-picker" role="radiogroup" aria-label="책 날개 선택">
+                <button role="radio" aria-checked={hasFlaps} className={hasFlaps ? "active" : ""} onClick={() => setHasFlaps(true)}><span className="flap-diagram with-flaps"><i /><b /><i /></span><strong>날개 있음</strong></button>
+                <button role="radio" aria-checked={!hasFlaps} className={!hasFlaps ? "active" : ""} onClick={() => setHasFlaps(false)}><span className="flap-diagram no-flaps"><b /></span><strong>날개 없음</strong></button>
+              </div>
+              <div className="dimension-form">
+                <label htmlFor="page-count"><span>페이지 수<small>면수</small></span><div><input id="page-count" type="number" min="50" max="300" step="2" value={pageCount} onChange={(event) => setPageCount(Math.min(300, Math.max(50, Number(event.target.value) || 50)))} /><em>P</em></div></label>
+                <div><span>날개</span><b>{hasFlaps ? `있음 · ${flapWidth}mm` : "없음"}</b></div>
+                {hasFlaps && <label className="flap-width" htmlFor="flap-width"><span>날개 폭</span><div><input id="flap-width" type="number" min="60" max="120" step="5" value={flapWidth} onChange={(event) => setFlapWidth(Math.min(120, Math.max(60, Number(event.target.value) || 90)))} /><em>mm</em></div></label>}
+                <div className="spine-value"><span>자동 책등 두께</span><b>{spineWidth.toFixed(2)} <small>mm</small></b></div>
+              </div>
+              <div className="spec-summary"><span>전체 전개도</span><b>{spreadWidth} × {spreadHeight}mm</b><small>{outputPixels.width.toLocaleString()} × {outputPixels.height.toLocaleString()}px · 300DPI</small></div>
+            </section>
             <label>어떤 표지를 원하세요?<textarea rows={4} value={coverPrompt} onChange={(e) => setCoverPrompt(e.target.value)} /></label>
             <div className="provider-picker" aria-label="표지 AI 선택">
               <button className={provider === "auto" ? "active" : ""} onClick={() => setProvider("auto")}>✦ 자동</button>
@@ -202,23 +253,24 @@ export default function Home() {
           </aside>
 
           <div className="canvas-zone">
-            <div className="canvas-head"><span>표지 미리보기</span><div><button>앞표지</button><button>책등</button><button>뒷표지</button></div><button className="zoom">− &nbsp; 80% &nbsp; +</button></div>
+            <div className="canvas-head"><span>전체 표지 전개도</span><div className="spread-meta"><b>{trim.label}</b><span>{pageCount}P</span><span>책등 {spineWidth.toFixed(2)}mm</span></div><button className={showGuides ? "guide-toggle active" : "guide-toggle"} onClick={() => setShowGuides((value) => !value)}>가이드 {showGuides ? "ON" : "OFF"}</button><button className="zoom">− &nbsp; 80% &nbsp; +</button></div>
             <div className="cover-stage">
-              <div className={`book-cover ${coverImage ? "has-image" : ""}`} style={coverImage ? { backgroundImage: `url(${coverImage})` } : undefined}>
+              <div className="ruler ruler-top"><span>0</span><span>{Math.round(spreadWidth / 4)}</span><span>{Math.round(spreadWidth / 2)}</span><span>{Math.round(spreadWidth * 0.75)}</span><span>{Math.round(spreadWidth)}mm</span></div>
+              <div className={`cover-spread ${coverImage ? "has-image" : ""}`} style={{ aspectRatio: `${spreadWidth} / ${spreadHeight}`, gridTemplateColumns: spreadColumns, ...(coverImage ? { backgroundImage: `url(${coverImage})` } : {}) } as React.CSSProperties}>
                 <div className="cover-grain" />
-                <div className="cover-topline">ESSAY COLLECTION · 2026</div>
-                <div className="cover-copy">
-                  <span className="cover-symbol">✦</span>
-                  <h2>{title}</h2>
-                  <p>{subtitle}</p>
-                </div>
-                <div className="cover-author">{author} 지음</div>
+                {showGuides && <><div className="bleed-guide" /><div className="safe-guide" /></>}
+                {hasFlaps && <section className="spread-flap flap-left"><small>날개 {flapWidth}mm</small><p>저자 소개와 책의 이야기를 담는 공간</p></section>}
+                <section className="spread-back"><span className="panel-label">뒤표지</span><p>어떤 시작은 아주 조용합니다.<br />이 책은 매일의 작은 장면을 천천히 기록하는 방법을 이야기합니다.</p><i>PAGEONE · 2026</i></section>
+                <section className="spread-spine"><span>{title}</span><i>✦</i><small>{author}</small></section>
+                <section className="spread-front"><span className="panel-label">앞표지</span><div className="cover-copy"><span className="cover-symbol">✦</span><h2>{title}</h2><p>{subtitle}</p></div><div className="cover-author">{author} 지음</div></section>
+                {hasFlaps && <section className="spread-flap flap-right"><small>날개 {flapWidth}mm</small><p>책 속의 문장과 출판 정보를 담는 공간</p></section>}
               </div>
+              <div className="spread-caption"><span>← 뒤표지</span><b>{spineWidth.toFixed(2)}mm</b><span>앞표지 →</span></div>
               <div className="cover-tools">
                 <button title="텍스트 추가">T</button><button title="이미지 배치">▧</button><button title="색상 변경">◐</button><button title="정렬">↔</button>
               </div>
             </div>
-            <div className="canvas-footer"><span>148 × 210 mm · A5</span><span>300 DPI · 인쇄 적합 ✓</span></div>
+            <div className="canvas-footer"><span>{trim.label} {trim.width}×{trim.height}mm · {pageCount}P · 책등 {spineWidth.toFixed(2)}mm · {hasFlaps ? `날개 ${flapWidth}mm` : "날개 없음"}</span><span>전체 {spreadWidth}×{spreadHeight}mm · {outputPixels.width.toLocaleString()}×{outputPixels.height.toLocaleString()}px · 300DPI ✓</span></div>
           </div>
 
           <aside className="tip-panel">
@@ -288,11 +340,11 @@ export default function Home() {
           <div className="publish-copy"><span className="eyebrow">STEP 03</span><h1>당신의 책이<br />완성되었어요.</h1><p>인쇄 전 마지막 정보를 확인하고, 종이책 또는 전자책용 PDF를 내려받으세요.</p></div>
           <div className="publish-preview">
             <div className="mini-book"><div className="mini-cover" style={coverImage ? { backgroundImage: `url(${coverImage})` } : undefined}><b>{title}</b><span>{author}</span></div><div className="mini-pages" /></div>
-            <div className="book-facts"><span>도서명</span><b>{title}</b><span>저자</span><b>{author}</b><span>예상 분량</span><b>약 36쪽</b></div>
+            <div className="book-facts"><span>도서명</span><b>{title}</b><span>저자</span><b>{author}</b><span>판형</span><b>{trim.label} · {trim.width}×{trim.height}mm</b><span>분량·책등</span><b>{pageCount}쪽 · {spineWidth.toFixed(2)}mm</b></div>
           </div>
           <aside className="publish-card">
             <h2>출판 설정</h2>
-            <label>판형<select value={format} onChange={(e) => setFormat(e.target.value)}><option>A5</option><option>신국판</option><option>B5</option></select></label>
+            <label>판형<select value={trimId} onChange={(e) => setTrimId(e.target.value as TrimId)}>{trimOptions.map((item) => <option key={item.id} value={item.id}>{item.label} · {item.width}×{item.height}mm</option>)}</select></label>
             <label>출판 형태<div className="format-toggle"><button className="active">종이책</button><button>전자책</button></div></label>
             <div className="check-list"><p><span>✓</span> 표지 해상도 적합</p><p><span>✓</span> 재단 여백 확인</p><p><span>✓</span> 폰트 포함 완료</p><p><span>✓</span> 빈 페이지 없음</p></div>
             <button className="primary-button" onClick={exportPdf}>↓ 인쇄용 PDF 만들기</button>
