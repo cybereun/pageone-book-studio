@@ -136,7 +136,7 @@ export default function Home() {
 - Canva 사용자 지정 크기: ${outputPixels.width}×${outputPixels.height}px (300DPI 기준)
 - 구성 순서: ${hasFlaps ? "왼쪽 날개 → 뒤표지 → 책등 → 앞표지 → 오른쪽 날개" : "뒤표지 → 책등 → 앞표지"}
 
-중요한 글자와 로고는 재단선에서 5mm 이상 안쪽에 배치하고, 책등 제목은 ${spineWidth.toFixed(2)}mm 영역 중앙에 세로 한 줄로 크게 정렬해 주세요.${showSpineAuthor ? " 작가명은 제목과 겹치지 않게 아래쪽에 더 작은 크기로 배치해 주세요." : " 책등에는 작가명을 넣지 마세요."} 완성 후 고해상도 PNG로 내보내 주세요.`, [author, bleed, coverPrompt, flapWidth, hasFlaps, outputPixels.height, outputPixels.width, pageCount, showSpineAuthor, spineWidth, spreadHeight, spreadWidth, subtitle, title, trim.height, trim.label, trim.width]);
+중요한 글자와 로고는 재단선에서 5mm 이상 안쪽에 배치하고, 책등 제목은 ${spineWidth.toFixed(2)}mm 영역 중앙에 세로 한 줄로 크게 정렬해 주세요.${showSpineAuthor ? " 작가명은 제목 아래쪽에 충분한 간격을 두고 더 작은 크기로 배치하되, 두 글자 묶음은 책등 중앙 축에 맞춰 주세요." : " 책등에는 작가명을 넣지 마세요."} 완성 후 고해상도 PNG로 내보내 주세요.`, [author, bleed, coverPrompt, flapWidth, hasFlaps, outputPixels.height, outputPixels.width, pageCount, showSpineAuthor, spineWidth, spreadHeight, spreadWidth, subtitle, title, trim.height, trim.label, trim.width]);
 
   async function generateCover() {
     setGenerating(true);
