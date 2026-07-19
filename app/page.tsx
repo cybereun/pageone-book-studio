@@ -5,6 +5,8 @@ import { useEffect, useMemo, useState } from "react";
 type Step = "cover" | "edit" | "publish";
 type Provider = "openai" | "gemini" | "claude";
 type TrimId = "46" | "A5" | "B5" | "A4";
+type CoverWorkflow = "ai" | "canva";
+type CoverSource = "starter" | "ai" | "canva";
 
 const trimOptions: Array<{ id: TrimId; label: string; width: number; height: number; use: string }> = [
   { id: "46", label: "46판", width: 127, height: 188, use: "시 · 에세이" },
@@ -35,6 +37,10 @@ export default function Home() {
   const [author, setAuthor] = useState("김하루");
   const [coverPrompt, setCoverPrompt] = useState("새벽빛이 스미는 창가, 펼쳐진 노트와 작은 올리브 나뭇가지. 따뜻하고 고요한 에세이 표지");
   const [coverImage, setCoverImage] = useState("");
+  const [coverWorkflow, setCoverWorkflow] = useState<CoverWorkflow>("ai");
+  const [coverSource, setCoverSource] = useState<CoverSource>("starter");
+  const [canvaFileName, setCanvaFileName] = useState("");
+  const [canvaFileStatus, setCanvaFileStatus] = useState("");
   const [generating, setGenerating] = useState(false);
   const [body, setBody] = useState(initialBody);
   const [aiInput, setAiInput] = useState("첫 문단을 더 몰입감 있게 다듬어줘");
@@ -53,36 +59,52 @@ export default function Home() {
   const [showGuides, setShowGuides] = useState(true);
 
   useEffect(() => {
+    let cancelled = false;
     const cached = localStorage.getItem("pageone-draft");
     if (cached) {
       try {
         const draft = JSON.parse(cached);
-        setTitle(draft.title ?? title);
-        setSubtitle(draft.subtitle ?? subtitle);
-        setAuthor(draft.author ?? author);
-        setBody(draft.body ?? body);
-        setCoverImage(draft.coverImage ?? "");
-        setTrimId(draft.trimId ?? "A5");
-        setPageCount(draft.pageCount ?? 100);
-        setHasFlaps(draft.hasFlaps ?? false);
-        setFlapWidth(draft.flapWidth ?? 90);
+        queueMicrotask(() => {
+          if (cancelled) return;
+          setTitle(draft.title ?? title);
+          setSubtitle(draft.subtitle ?? subtitle);
+          setAuthor(draft.author ?? author);
+          setBody(draft.body ?? body);
+          setCoverImage(draft.coverImage ?? "");
+          setCoverWorkflow(draft.coverWorkflow ?? "ai");
+          setCoverSource(draft.coverSource ?? "starter");
+          setCanvaFileName(draft.canvaFileName ?? "");
+          setTrimId(draft.trimId ?? "A5");
+          setPageCount(draft.pageCount ?? 100);
+          setHasFlaps(draft.hasFlaps ?? false);
+          setFlapWidth(draft.flapWidth ?? 90);
+        });
       } catch { /* keep the starter manuscript */ }
     }
     const savedKeys = sessionStorage.getItem("pageone-api-keys");
     if (savedKeys) {
-      try { setApiKeys({ openai: "", gemini: "", claude: "", ...JSON.parse(savedKeys) }); } catch { /* ignore invalid local state */ }
+      try {
+        const keys = JSON.parse(savedKeys);
+        queueMicrotask(() => {
+          if (!cancelled) setApiKeys({ openai: "", gemini: "", claude: "", ...keys });
+        });
+      } catch { /* ignore invalid local state */ }
     }
+    return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    setSaved(false);
+    const dirtyTimer = setTimeout(() => setSaved(false), 0);
     const timer = setTimeout(() => {
-      localStorage.setItem("pageone-draft", JSON.stringify({ title, subtitle, author, body, coverImage, trimId, pageCount, hasFlaps, flapWidth }));
+      localStorage.setItem("pageone-draft", JSON.stringify({ title, subtitle, author, body, coverImage, coverWorkflow, coverSource, canvaFileName, trimId, pageCount, hasFlaps, flapWidth }));
       setSaved(true);
     }, 600);
-    return () => clearTimeout(timer);
-  }, [title, subtitle, author, body, coverImage, trimId, pageCount, hasFlaps, flapWidth]);
+    return () => {
+      clearTimeout(dirtyTimer);
+      clearTimeout(timer);
+    };
+  }, [title, subtitle, author, body, coverImage, coverWorkflow, coverSource, canvaFileName, trimId, pageCount, hasFlaps, flapWidth]);
 
   const wordCount = useMemo(() => body.replace(/\s/g, "").length, [body]);
   const trim = trimOptions.find((item) => item.id === trimId) ?? trimOptions[1];
@@ -94,6 +116,24 @@ export default function Home() {
   const spreadColumns = hasFlaps
     ? `${flapWidth}fr ${trim.width}fr ${spineWidth}fr ${trim.width}fr ${flapWidth}fr`
     : `${trim.width}fr ${spineWidth}fr ${trim.width}fr`;
+  const canvaBrief = useMemo(() => `Canva에서 한국 단행본 인쇄용 전체 표지 전개도를 만들어 주세요.
+
+도서명: ${title}
+부제: ${subtitle}
+저자: ${author}
+표지 분위기: ${coverPrompt}
+
+[정확한 제작 규격]
+- 판형: ${trim.label} (${trim.width}×${trim.height}mm)
+- 페이지 수: ${pageCount}P
+- 책등: ${spineWidth.toFixed(2)}mm
+- 날개: ${hasFlaps ? `좌우 각 ${flapWidth}mm` : "없음"}
+- 재단 여백: 사방 ${bleed}mm
+- 전체 전개도: ${spreadWidth}×${spreadHeight}mm
+- Canva 사용자 지정 크기: ${outputPixels.width}×${outputPixels.height}px (300DPI 기준)
+- 구성 순서: ${hasFlaps ? "왼쪽 날개 → 뒤표지 → 책등 → 앞표지 → 오른쪽 날개" : "뒤표지 → 책등 → 앞표지"}
+
+중요한 글자와 로고는 재단선에서 5mm 이상 안쪽에 배치하고, 책등 제목은 ${spineWidth.toFixed(2)}mm 영역 중앙에 세로로 정렬해 주세요. 완성 후 고해상도 PNG로 내보내 주세요.`, [author, bleed, coverPrompt, flapWidth, hasFlaps, outputPixels.height, outputPixels.width, pageCount, spineWidth, spreadHeight, spreadWidth, subtitle, title, trim.height, trim.label, trim.width]);
 
   async function generateCover() {
     setGenerating(true);
@@ -107,7 +147,12 @@ export default function Home() {
         }),
       });
       const data = await res.json();
-      if (data.image) setCoverImage(data.image);
+      if (data.image) {
+        setCoverImage(data.image);
+        setCoverSource("ai");
+        setCanvaFileName("");
+        setCanvaFileStatus("");
+      }
       setToast(data.demo ? "이미지 생성 키가 없어 편집 가능한 디자인 시안을 만들었어요." : `${data.providerLabel || "AI"}가 새 표지를 완성했어요.`);
     } catch {
       setToast("표지 생성이 잠시 지연되고 있어요. 다시 시도해 주세요.");
@@ -115,6 +160,99 @@ export default function Home() {
       setGenerating(false);
       setTimeout(() => setToast(""), 3200);
     }
+  }
+
+  async function copyCanvaBrief() {
+    try {
+      await navigator.clipboard.writeText(canvaBrief);
+      setToast("Canva MCP 작업 지시서를 복사했어요.");
+    } catch {
+      setToast("복사 권한을 허용한 뒤 다시 시도해 주세요.");
+    }
+    setTimeout(() => setToast(""), 2600);
+  }
+
+  function downloadCanvaGuide() {
+    const canvas = document.createElement("canvas");
+    canvas.width = outputPixels.width;
+    canvas.height = outputPixels.height;
+    const context = canvas.getContext("2d");
+    if (!context) return;
+    const scale = 300 / 25.4;
+    const px = (mm: number) => mm * scale;
+    context.fillStyle = "#fffdf9";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.strokeStyle = "#21a9df";
+    context.lineWidth = Math.max(2, Math.round(scale * 0.2));
+    context.strokeRect(px(bleed), px(bleed), canvas.width - px(bleed * 2), canvas.height - px(bleed * 2));
+
+    const sections = hasFlaps
+      ? [{ label: "왼쪽 날개", width: flapWidth }, { label: "뒤표지", width: trim.width }, { label: "책등", width: spineWidth }, { label: "앞표지", width: trim.width }, { label: "오른쪽 날개", width: flapWidth }]
+      : [{ label: "뒤표지", width: trim.width }, { label: "책등", width: spineWidth }, { label: "앞표지", width: trim.width }];
+    let x = px(bleed);
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    sections.forEach((section, index) => {
+      const width = px(section.width);
+      if (index > 0) {
+        context.setLineDash(section.label === "책등" || sections[index - 1]?.label === "책등" ? [16, 10] : [8, 8]);
+        context.strokeStyle = section.label === "책등" || sections[index - 1]?.label === "책등" ? "#e44f79" : "#7b61e8";
+        context.beginPath();
+        context.moveTo(x, px(bleed));
+        context.lineTo(x, canvas.height - px(bleed));
+        context.stroke();
+      }
+      context.setLineDash([]);
+      context.fillStyle = section.label === "책등" ? "#fff0f4" : index % 2 ? "#f5f2ff" : "#f4fbfe";
+      context.globalAlpha = 0.48;
+      context.fillRect(x, px(bleed), width, canvas.height - px(bleed * 2));
+      context.globalAlpha = 1;
+      context.fillStyle = "#3a3936";
+      context.font = `700 ${Math.max(20, Math.round(canvas.height * 0.025))}px sans-serif`;
+      context.fillText(`${section.label} · ${section.width.toFixed(section.label === "책등" ? 2 : 0)}mm`, x + width / 2, canvas.height / 2);
+      x += width;
+    });
+    context.fillStyle = "#1679a1";
+    context.font = `600 ${Math.max(18, Math.round(canvas.height * 0.015))}px sans-serif`;
+    context.textAlign = "left";
+    context.fillText(`PAGEONE 표지 가이드 · ${spreadWidth}×${spreadHeight}mm · ${outputPixels.width}×${outputPixels.height}px`, px(bleed + 3), px(bleed + 5));
+    const link = document.createElement("a");
+    link.download = `PAGEONE-${trim.label}-${pageCount}P-cover-guide.png`;
+    link.href = canvas.toDataURL("image/png");
+    link.click();
+    setToast("Canva용 표지 규격 가이드를 내려받았어요.");
+    setTimeout(() => setToast(""), 2600);
+  }
+
+  function importCanvaCover(file?: File) {
+    if (!file) return;
+    if (!/^image\/(png|jpeg|webp)$/.test(file.type)) {
+      setCanvaFileStatus("PNG, JPG 또는 WEBP 파일만 적용할 수 있어요.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const image = new Image();
+      image.onload = () => {
+        const expectedRatio = outputPixels.width / outputPixels.height;
+        const actualRatio = image.naturalWidth / image.naturalHeight;
+        const ratioError = Math.abs(actualRatio - expectedRatio) / expectedRatio;
+        if (ratioError > 0.02) {
+          setCanvaFileStatus(`규격 비율이 맞지 않아요. ${outputPixels.width}×${outputPixels.height}px로 다시 내보내 주세요.`);
+          return;
+        }
+        setCoverImage(String(reader.result));
+        setCoverSource("canva");
+        setCanvaFileName(file.name);
+        setCanvaFileStatus(image.naturalWidth >= outputPixels.width && image.naturalHeight >= outputPixels.height
+          ? `규격 확인 완료 · ${image.naturalWidth.toLocaleString()}×${image.naturalHeight.toLocaleString()}px`
+          : `표지에 적용했지만 해상도가 낮아요 · 권장 ${outputPixels.width.toLocaleString()}×${outputPixels.height.toLocaleString()}px`);
+        setToast("Canva 표지를 전체 전개도에 적용했어요.");
+        setTimeout(() => setToast(""), 2600);
+      };
+      image.src = String(reader.result);
+    };
+    reader.readAsDataURL(file);
   }
 
   async function askAi(action?: string) {
@@ -208,7 +346,11 @@ export default function Home() {
             <div className="panel-heading">
               <span className="eyebrow">STEP 01</span>
               <h1>책의 첫인상을<br />만들어 볼까요?</h1>
-              <p>책의 분위기를 알려주면 AI가 표지 시안을 만들어요. 제목과 색상은 언제든 수정할 수 있어요.</p>
+              <p>{coverWorkflow === "ai" ? "책의 분위기를 알려주면 AI가 표지 시안을 만들어요. 제목과 색상은 언제든 수정할 수 있어요." : "현재 규격을 Canva 작업에 전달하고, 완성한 표지를 다시 가져와 정확히 적용할 수 있어요."}</p>
+            </div>
+            <div className="cover-workflow" role="radiogroup" aria-label="표지 제작 방식 선택">
+              <button role="radio" aria-checked={coverWorkflow === "ai"} className={coverWorkflow === "ai" ? "active" : ""} onClick={() => setCoverWorkflow("ai")}><span className="workflow-mark ai-mark">✦</span><span><b>PAGEONE AI</b><small>지금 방식으로 바로 생성</small></span></button>
+              <button role="radio" aria-checked={coverWorkflow === "canva"} className={coverWorkflow === "canva" ? "active canva-active" : ""} onClick={() => setCoverWorkflow("canva")}><span className="workflow-mark canva-mark">C</span><span><b>Canva 작업</b><small>MCP 제작 후 가져오기</small></span></button>
             </div>
             <label>책 제목<input value={title} onChange={(e) => setTitle(e.target.value)} /></label>
             <label>부제<input value={subtitle} onChange={(e) => setSubtitle(e.target.value)} /></label>
@@ -237,23 +379,38 @@ export default function Home() {
               <div className="spec-summary"><span>전체 전개도</span><b>{spreadWidth} × {spreadHeight}mm</b><small>{outputPixels.width.toLocaleString()} × {outputPixels.height.toLocaleString()}px · 300DPI</small></div>
             </section>
             <label>어떤 표지를 원하세요?<textarea rows={4} value={coverPrompt} onChange={(e) => setCoverPrompt(e.target.value)} /></label>
-            <div className="provider-picker" aria-label="표지 AI 선택">
-              <button className={provider === "auto" ? "active" : ""} onClick={() => setProvider("auto")}>✦ 자동</button>
-              {aiProviders.map((item) => <button key={item.id} className={provider === item.id ? "active" : ""} onClick={() => setProvider(item.id)}><img src={item.icon} alt="" />{item.name.split(" ").slice(-1)[0]}</button>)}
-            </div>
-            <div className="prompt-suggestions">
-              <button onClick={() => setCoverPrompt("여백이 넉넉한 미니멀 에세이, 따뜻한 아이보리 종이와 작은 식물 드로잉")}>미니멀 에세이</button>
-              <button onClick={() => setCoverPrompt("짙은 남색 밤하늘과 금빛 별, 신비로운 문학 소설 표지")}>문학 소설</button>
-              <button onClick={() => setCoverPrompt("선명한 코랄 포인트와 기하학 도형, 현대적인 자기계발서 표지")}>자기계발</button>
-            </div>
-            <button className="primary-button" onClick={generateCover} disabled={generating}>
-              <span>✦</span>{generating ? "AI가 표지를 그리고 있어요…" : "AI로 새 표지 만들기"}
-            </button>
-            <p className="credit-note">생성 1회 · AI 크레딧 1개</p>
+            {coverWorkflow === "ai" ? <>
+              <div className="provider-picker" aria-label="표지 AI 선택">
+                <button className={provider === "auto" ? "active" : ""} onClick={() => setProvider("auto")}>✦ 자동</button>
+                {aiProviders.map((item) => <button key={item.id} className={provider === item.id ? "active" : ""} onClick={() => setProvider(item.id)}><img src={item.icon} alt="" />{item.name.split(" ").slice(-1)[0]}</button>)}
+              </div>
+              <div className="prompt-suggestions">
+                <button onClick={() => setCoverPrompt("여백이 넉넉한 미니멀 에세이, 따뜻한 아이보리 종이와 작은 식물 드로잉")}>미니멀 에세이</button>
+                <button onClick={() => setCoverPrompt("짙은 남색 밤하늘과 금빛 별, 신비로운 문학 소설 표지")}>문학 소설</button>
+                <button onClick={() => setCoverPrompt("선명한 코랄 포인트와 기하학 도형, 현대적인 자기계발서 표지")}>자기계발</button>
+              </div>
+              <button className="primary-button" onClick={generateCover} disabled={generating}>
+                <span>✦</span>{generating ? "AI가 표지를 그리고 있어요…" : "AI로 새 표지 만들기"}
+              </button>
+              <p className="credit-note">생성 1회 · AI 크레딧 1개</p>
+            </> : <section className="canva-flow" aria-label="Canva 표지 작업 과정">
+              <div className="canva-step"><span>1</span><div><b>작업 규격 준비</b><small>{outputPixels.width.toLocaleString()}×{outputPixels.height.toLocaleString()}px · 300DPI</small></div><button onClick={downloadCanvaGuide}>가이드 PNG</button></div>
+              <div className="canva-step"><span>2</span><div><b>Canva에서 제작</b><small>MCP에 지시서를 전달한 뒤 자유롭게 편집</small></div></div>
+              <div className="canva-actions">
+                <button className="canva-copy" onClick={copyCanvaBrief}>MCP 작업 지시서 복사</button>
+                <a href="https://www.canva.com/" target="_blank" rel="noreferrer">Canva 열기 ↗</a>
+              </div>
+              <div className="canva-step"><span>3</span><div><b>완성 표지 가져오기</b><small>Canva에서 고해상도 PNG로 내려받아 주세요</small></div></div>
+              <label className={canvaFileName ? "canva-upload has-file" : "canva-upload"} htmlFor="canva-cover-file">
+                <input id="canva-cover-file" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => importCanvaCover(event.target.files?.[0])} />
+                <span>{canvaFileName ? "✓" : "↑"}</span><b>{canvaFileName || "Canva 표지 파일 선택"}</b><small>PNG · JPG · WEBP</small>
+              </label>
+              {canvaFileStatus && <p className={canvaFileStatus.includes("완료") ? "canva-status success" : "canva-status"}>{canvaFileStatus}</p>}
+            </section>}
           </aside>
 
           <div className="canvas-zone">
-            <div className="canvas-head"><span>전체 표지 전개도</span><div className="spread-meta"><b>{trim.label}</b><span>{pageCount}P</span><span>책등 {spineWidth.toFixed(2)}mm</span></div><button className={showGuides ? "guide-toggle active" : "guide-toggle"} onClick={() => setShowGuides((value) => !value)}>가이드 {showGuides ? "ON" : "OFF"}</button><button className="zoom">− &nbsp; 80% &nbsp; +</button></div>
+            <div className="canvas-head"><span>전체 표지 전개도</span>{coverSource !== "starter" && <em className={`cover-source ${coverSource}`}>{coverSource === "canva" ? "Canva 적용됨" : "AI 적용됨"}</em>}<div className="spread-meta"><b>{trim.label}</b><span>{pageCount}P</span><span>책등 {spineWidth.toFixed(2)}mm</span></div><button className={showGuides ? "guide-toggle active" : "guide-toggle"} onClick={() => setShowGuides((value) => !value)}>가이드 {showGuides ? "ON" : "OFF"}</button><button className="zoom">− &nbsp; 80% &nbsp; +</button></div>
             <div className="cover-stage">
               <div className="ruler ruler-top"><span>0</span><span>{Math.round(spreadWidth / 4)}</span><span>{Math.round(spreadWidth / 2)}</span><span>{Math.round(spreadWidth * 0.75)}</span><span>{Math.round(spreadWidth)}mm</span></div>
               <div className={`cover-spread ${coverImage ? "has-image" : ""}`} style={{ aspectRatio: `${spreadWidth} / ${spreadHeight}`, gridTemplateColumns: spreadColumns, ...(coverImage ? { backgroundImage: `url(${coverImage})` } : {}) } as React.CSSProperties}>
@@ -274,10 +431,10 @@ export default function Home() {
           </div>
 
           <aside className="tip-panel">
-            <div className="tip-icon">✦</div>
-            <h3>좋은 표지 프롬프트</h3>
-            <p>장르, 분위기, 중심 소재와 원하는 색을 함께 적으면 더 좋은 결과를 얻을 수 있어요.</p>
-            <div className="example-prompt">“비 오는 창가의 찻잔, 청회색 수채화, 차분한 에세이 표지”</div>
+            <div className="tip-icon">{coverWorkflow === "canva" ? "C" : "✦"}</div>
+            <h3>{coverWorkflow === "canva" ? "Canva 가져오기 안내" : "좋은 표지 프롬프트"}</h3>
+            <p>{coverWorkflow === "canva" ? "가이드 파일을 Canva 작업의 가장 아래 레이어에 놓고 투명도를 낮춰 사용하세요. 완성할 때는 가이드 레이어를 숨긴 뒤 내려받으세요." : "장르, 분위기, 중심 소재와 원하는 색을 함께 적으면 더 좋은 결과를 얻을 수 있어요."}</p>
+            <div className="example-prompt">{coverWorkflow === "canva" ? `권장 출력 ${outputPixels.width.toLocaleString()}×${outputPixels.height.toLocaleString()}px` : "“비 오는 창가의 찻잔, 청회색 수채화, 차분한 에세이 표지”"}</div>
             <button onClick={() => setStep("edit")}>다음: 본문 편집 <span>→</span></button>
           </aside>
         </section>
