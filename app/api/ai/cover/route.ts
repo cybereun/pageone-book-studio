@@ -4,7 +4,7 @@ async function claudeArtDirection(apiKey: string, prompt: string) {
   const response = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
-    body: JSON.stringify({ model: "claude-sonnet-5", max_tokens: 500, messages: [{ role: "user", content: `한국 단행본 표지의 아트디렉터로서 아래 요청을 이미지 생성 모델용 프롬프트로 구체화하세요. 설명 없이 프롬프트만 출력하세요.\n${prompt}` }] }),
+    body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 500, messages: [{ role: "user", content: `한국 단행본 표지의 아트디렉터로서 아래 요청을 이미지 생성 모델용 프롬프트로 구체화하세요. 설명 없이 프롬프트만 출력하세요.\n${prompt}` }] }),
   });
   if (!response.ok) return prompt;
   const data = await response.json();
@@ -14,7 +14,7 @@ async function claudeArtDirection(apiKey: string, prompt: string) {
 async function openaiImage(apiKey: string, prompt: string) {
   const response = await fetch("https://api.openai.com/v1/images/generations", {
     method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({ model: "gpt-image-2", size: "1536x1024", quality: "high", prompt }),
+    body: JSON.stringify({ model: "gpt-image-1", size: "1536x1024", quality: "high", prompt }),
   });
   if (!response.ok) return null;
   const data = await response.json();
@@ -24,7 +24,7 @@ async function openaiImage(apiKey: string, prompt: string) {
 async function geminiImage(apiKey: string, prompt: string, aspectRatio: "3:2" | "16:9") {
   const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image:generateContent", {
     method: "POST", headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
-    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseModalities: ["TEXT", "IMAGE"], imageConfig: { aspectRatio } } }),
+    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseModalities: ["TEXT", "IMAGE"], imageConfig: { aspectRatio, imageSize: "4K" } } }),
   });
   if (!response.ok) return null;
   const data = await response.json();

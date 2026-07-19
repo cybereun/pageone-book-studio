@@ -1,12 +1,50 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Image from "next/image";
+import { buildSinglePageJpegPdf, calculateCoverSpec, clampZoom, validateImportedImage } from "./lib/cover-spec.mjs";
 
 type Step = "cover" | "edit" | "publish";
 type Provider = "openai" | "gemini" | "claude";
 type TrimId = "46" | "A5" | "B5" | "A4";
 type CoverWorkflow = "ai" | "canva";
 type CoverSource = "starter" | "ai" | "canva";
+type EditorTool = "text" | "image" | "color" | "align" | null;
+type TextTarget = "title" | "subtitle" | "author" | "spineTitle" | "spineAuthor";
+type TextStyle = { fontFamily: string; fontSize: number; color: string; align: "left" | "center" | "right"; offsetX: number; offsetY: number };
+type CustomText = TextStyle & { id: number; text: string; x: number; y: number };
+
+const defaultTextStyles: Record<TextTarget, TextStyle> = {
+  title: { fontFamily: "Noto Serif KR", fontSize: 38, color: "#ffffff", align: "center", offsetX: 0, offsetY: 0 },
+  subtitle: { fontFamily: "Noto Sans KR", fontSize: 11, color: "#ffffff", align: "center", offsetX: 0, offsetY: 0 },
+  author: { fontFamily: "Noto Sans KR", fontSize: 10, color: "#ffffff", align: "center", offsetX: 0, offsetY: 0 },
+  spineTitle: { fontFamily: "Noto Serif KR", fontSize: 10, color: "#ffffff", align: "center", offsetX: 0, offsetY: 0 },
+  spineAuthor: { fontFamily: "Noto Sans KR", fontSize: 6, color: "#ffffff", align: "center", offsetX: 0, offsetY: 0 },
+};
+
+function coverDatabase() {
+  return new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open("pageone-assets", 1);
+    request.onupgradeneeded = () => request.result.createObjectStore("covers");
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function storeCoverImage(value: string) {
+  const database = await coverDatabase();
+  const transaction = database.transaction("covers", "readwrite");
+  transaction.objectStore("covers").put(value, "current");
+}
+
+async function restoreCoverImage() {
+  const database = await coverDatabase();
+  return new Promise<string>((resolve) => {
+    const request = database.transaction("covers").objectStore("covers").get("current");
+    request.onsuccess = () => resolve(typeof request.result === "string" ? request.result : "");
+    request.onerror = () => resolve("");
+  });
+}
 
 const trimOptions: Array<{ id: TrimId; label: string; width: number; height: number; use: string }> = [
   { id: "46", label: "46판", width: 127, height: 188, use: "시 · 에세이" },
@@ -58,6 +96,15 @@ export default function Home() {
   const [flapWidth, setFlapWidth] = useState(90);
   const [showSpineAuthor, setShowSpineAuthor] = useState(true);
   const [showGuides, setShowGuides] = useState(true);
+  const [zoom, setZoom] = useState(80);
+  const [activeTool, setActiveTool] = useState<EditorTool>(null);
+  const [selectedText, setSelectedText] = useState<TextTarget>("title");
+  const [textStyles, setTextStyles] = useState<Record<TextTarget, TextStyle>>(defaultTextStyles);
+  const [customTexts, setCustomTexts] = useState<CustomText[]>([]);
+  const [backgroundColor, setBackgroundColor] = useState("#d95b42");
+  const [backgroundScale, setBackgroundScale] = useState(100);
+  const [backgroundX, setBackgroundX] = useState(50);
+  const [backgroundY, setBackgroundY] = useState(50);
 
   useEffect(() => {
     let cancelled = false;
@@ -71,7 +118,6 @@ export default function Home() {
           setSubtitle(draft.subtitle ?? subtitle);
           setAuthor(draft.author ?? author);
           setBody(draft.body ?? body);
-          setCoverImage(draft.coverImage ?? "");
           setCoverWorkflow(draft.coverWorkflow ?? "ai");
           setCoverSource(draft.coverSource ?? "starter");
           setCanvaFileName(draft.canvaFileName ?? "");
@@ -80,6 +126,12 @@ export default function Home() {
           setHasFlaps(draft.hasFlaps ?? false);
           setFlapWidth(draft.flapWidth ?? 90);
           setShowSpineAuthor(draft.showSpineAuthor ?? true);
+          setTextStyles(draft.textStyles ?? defaultTextStyles);
+          setCustomTexts(draft.customTexts ?? []);
+          setBackgroundColor(draft.backgroundColor ?? "#d95b42");
+          setBackgroundScale(draft.backgroundScale ?? 100);
+          setBackgroundX(draft.backgroundX ?? 50);
+          setBackgroundY(draft.backgroundY ?? 50);
         });
       } catch { /* keep the starter manuscript */ }
     }
@@ -92,6 +144,7 @@ export default function Home() {
         });
       } catch { /* ignore invalid local state */ }
     }
+    restoreCoverImage().then((image) => { if (!cancelled && image) setCoverImage(image); }).catch(() => undefined);
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -99,22 +152,21 @@ export default function Home() {
   useEffect(() => {
     const dirtyTimer = setTimeout(() => setSaved(false), 0);
     const timer = setTimeout(() => {
-      localStorage.setItem("pageone-draft", JSON.stringify({ title, subtitle, author, body, coverImage, coverWorkflow, coverSource, canvaFileName, trimId, pageCount, hasFlaps, flapWidth, showSpineAuthor }));
+      localStorage.setItem("pageone-draft", JSON.stringify({ title, subtitle, author, body, coverWorkflow, coverSource, canvaFileName, trimId, pageCount, hasFlaps, flapWidth, showSpineAuthor, textStyles, customTexts, backgroundColor, backgroundScale, backgroundX, backgroundY }));
+      if (coverImage) storeCoverImage(coverImage).catch(() => undefined);
       setSaved(true);
     }, 600);
     return () => {
       clearTimeout(dirtyTimer);
       clearTimeout(timer);
     };
-  }, [title, subtitle, author, body, coverImage, coverWorkflow, coverSource, canvaFileName, trimId, pageCount, hasFlaps, flapWidth, showSpineAuthor]);
+  }, [title, subtitle, author, body, coverImage, coverWorkflow, coverSource, canvaFileName, trimId, pageCount, hasFlaps, flapWidth, showSpineAuthor, textStyles, customTexts, backgroundColor, backgroundScale, backgroundX, backgroundY]);
 
   const wordCount = useMemo(() => body.replace(/\s/g, "").length, [body]);
   const trim = trimOptions.find((item) => item.id === trimId) ?? trimOptions[1];
-  const spineWidth = Number((pageCount * 0.055 + 1.6).toFixed(2));
-  const bleed = 3;
-  const spreadWidth = Number((trim.width * 2 + spineWidth + bleed * 2 + (hasFlaps ? flapWidth * 2 : 0)).toFixed(2));
-  const spreadHeight = trim.height + bleed * 2;
-  const outputPixels = { width: Math.round((spreadWidth / 25.4) * 300), height: Math.round((spreadHeight / 25.4) * 300) };
+  const coverSpec = calculateCoverSpec({ trimWidth: trim.width, trimHeight: trim.height, pageCount, hasFlaps, flapWidth });
+  const { spineWidth, bleed, spreadWidth, spreadHeight } = coverSpec;
+  const outputPixels = { width: coverSpec.pixelWidth, height: coverSpec.pixelHeight };
   const spreadColumns = hasFlaps
     ? `${flapWidth}fr ${trim.width}fr ${spineWidth}fr ${trim.width}fr ${flapWidth}fr`
     : `${trim.width}fr ${spineWidth}fr ${trim.width}fr`;
@@ -138,6 +190,116 @@ export default function Home() {
 
 중요한 글자와 로고는 재단선에서 5mm 이상 안쪽에 배치하고, 책등 제목은 ${spineWidth.toFixed(2)}mm 영역 중앙에 세로 한 줄로 크게 정렬해 주세요.${showSpineAuthor ? " 작가명은 제목 아래쪽에 충분한 간격을 두고 더 작은 크기로 배치하되, 두 글자 묶음은 책등 중앙 축에 맞춰 주세요." : " 책등에는 작가명을 넣지 마세요."} 완성 후 고해상도 PNG로 내보내 주세요.`, [author, bleed, coverPrompt, flapWidth, hasFlaps, outputPixels.height, outputPixels.width, pageCount, showSpineAuthor, spineWidth, spreadHeight, spreadWidth, subtitle, title, trim.height, trim.label, trim.width]);
 
+  function loadImage(source: string) {
+    return new Promise<HTMLImageElement>((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = reject;
+      image.src = source;
+    });
+  }
+
+  async function normalizeCoverImage(source: string) {
+    const image = await loadImage(source);
+    const validation = validateImportedImage({ width: image.naturalWidth, height: image.naturalHeight, targetWidth: outputPixels.width, targetHeight: outputPixels.height });
+    const canvas = document.createElement("canvas");
+    canvas.width = outputPixels.width;
+    canvas.height = outputPixels.height;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Canvas is unavailable");
+    const sourceRatio = image.naturalWidth / image.naturalHeight;
+    const targetRatio = canvas.width / canvas.height;
+    let sx = 0, sy = 0, sw = image.naturalWidth, sh = image.naturalHeight;
+    if (sourceRatio > targetRatio) { sw = image.naturalHeight * targetRatio; sx = (image.naturalWidth - sw) / 2; }
+    else { sh = image.naturalWidth / targetRatio; sy = (image.naturalHeight - sh) / 2; }
+    context.drawImage(image, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+    return { dataUrl: canvas.toDataURL("image/png"), validation, sourceWidth: image.naturalWidth, sourceHeight: image.naturalHeight };
+  }
+
+  function patchTextStyle(patch: Partial<TextStyle>) {
+    setTextStyles((styles) => ({ ...styles, [selectedText]: { ...styles[selectedText], ...patch } }));
+  }
+
+  function addCustomText() {
+    setCustomTexts((items) => [...items, { id: Date.now(), text: "새 문구", x: 50, y: 35, fontFamily: "Noto Sans KR", fontSize: 16, color: "#ffffff", align: "center", offsetX: 0, offsetY: 0 }]);
+    setActiveTool("text");
+  }
+
+  async function renderPrintCover() {
+    const canvas = document.createElement("canvas");
+    canvas.width = outputPixels.width;
+    canvas.height = outputPixels.height;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Canvas is unavailable");
+    context.fillStyle = backgroundColor;
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    if (coverImage) {
+      const image = await loadImage(coverImage);
+      const scale = backgroundScale / 100;
+      const width = canvas.width * scale;
+      const height = canvas.height * scale;
+      context.drawImage(image, (canvas.width - width) * backgroundX / 100, (canvas.height - height) * backgroundY / 100, width, height);
+      const gradient = context.createLinearGradient(0, 0, canvas.width, 0);
+      gradient.addColorStop(0, "rgba(10,18,15,.28)");
+      gradient.addColorStop(.55, "rgba(10,18,15,.08)");
+      gradient.addColorStop(1, "rgba(10,18,15,.24)");
+      context.fillStyle = gradient;
+      context.fillRect(0, 0, canvas.width, canvas.height);
+    }
+    const mm = canvas.width / spreadWidth;
+    const textScale = canvas.height / 540;
+    const flap = hasFlaps ? flapWidth : 0;
+    const spineStart = bleed + flap + trim.width;
+    const frontStart = spineStart + spineWidth;
+    const frontCenter = (frontStart + trim.width / 2) * mm;
+    const spineCenter = (spineStart + spineWidth / 2) * mm;
+    const drawText = (value: string, style: TextStyle, x: number, y: number) => {
+      context.save();
+      context.fillStyle = style.color;
+      context.font = `700 ${style.fontSize * textScale}px "${style.fontFamily}", sans-serif`;
+      context.textAlign = style.align;
+      context.textBaseline = "middle";
+      context.fillText(value, x + style.offsetX * textScale, y + style.offsetY * textScale, trim.width * mm * .82);
+      context.restore();
+    };
+    drawText(title, textStyles.title, frontCenter, canvas.height * .46);
+    drawText(subtitle, textStyles.subtitle, frontCenter, canvas.height * .57);
+    drawText(`${author} 지음`, textStyles.author, frontCenter, canvas.height * .87);
+    context.save(); context.translate(spineCenter, canvas.height * .42); context.rotate(Math.PI / 2); drawText(title, textStyles.spineTitle, 0, 0); context.restore();
+    if (showSpineAuthor) { context.save(); context.translate(spineCenter, canvas.height * .72); context.rotate(Math.PI / 2); drawText(author, textStyles.spineAuthor, 0, 0); context.restore(); }
+    customTexts.forEach((item) => drawText(item.text, item, (frontStart + trim.width * item.x / 100) * mm, canvas.height * item.y / 100));
+    return canvas;
+  }
+
+  function downloadDataUrl(dataUrl: string, filename: string) {
+    const link = document.createElement("a");
+    link.href = dataUrl;
+    link.download = filename;
+    link.click();
+  }
+
+  async function downloadPrintPng() {
+    try {
+      const canvas = await renderPrintCover();
+      downloadDataUrl(canvas.toDataURL("image/png"), `PAGEONE-${trim.label}-${pageCount}P-300DPI.png`);
+      setToast("300 DPI 표지 PNG를 만들었어요.");
+    } catch { setToast("표지 PNG를 만드는 중 문제가 생겼어요."); }
+    setTimeout(() => setToast(""), 2600);
+  }
+
+  async function downloadPrintPdf() {
+    try {
+      const canvas = await renderPrintCover();
+      const jpeg = new Uint8Array(await (await fetch(canvas.toDataURL("image/jpeg", .96))).arrayBuffer());
+      const bytes = buildSinglePageJpegPdf(jpeg, { pixelWidth: canvas.width, pixelHeight: canvas.height, pageWidth: spreadWidth * 72 / 25.4, pageHeight: spreadHeight * 72 / 25.4 });
+      const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+      downloadDataUrl(url, `PAGEONE-${trim.label}-${pageCount}P-print-cover.pdf`);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setToast("실제 규격의 인쇄용 표지 PDF를 만들었어요.");
+    } catch { setToast("표지 PDF를 만드는 중 문제가 생겼어요."); }
+    setTimeout(() => setToast(""), 2600);
+  }
+
   async function generateCover() {
     setGenerating(true);
     try {
@@ -151,7 +313,8 @@ export default function Home() {
       });
       const data = await res.json();
       if (data.image) {
-        setCoverImage(data.image);
+        const normalized = await normalizeCoverImage(data.image);
+        setCoverImage(normalized.dataUrl);
         setCoverSource("ai");
         setCanvaFileName("");
         setCanvaFileStatus("");
@@ -227,7 +390,7 @@ export default function Home() {
     setTimeout(() => setToast(""), 2600);
   }
 
-  function importCanvaCover(file?: File) {
+  function importCanvaCover(file?: File, source: CoverSource = "canva") {
     if (!file) return;
     if (!/^image\/(png|jpeg|webp)$/.test(file.type)) {
       setCanvaFileStatus("PNG, JPG 또는 WEBP 파일만 적용할 수 있어요.");
@@ -236,21 +399,16 @@ export default function Home() {
     const reader = new FileReader();
     reader.onload = () => {
       const image = new Image();
-      image.onload = () => {
-        const expectedRatio = outputPixels.width / outputPixels.height;
-        const actualRatio = image.naturalWidth / image.naturalHeight;
-        const ratioError = Math.abs(actualRatio - expectedRatio) / expectedRatio;
-        if (ratioError > 0.02) {
-          setCanvaFileStatus(`규격 비율이 맞지 않아요. ${outputPixels.width}×${outputPixels.height}px로 다시 내보내 주세요.`);
-          return;
-        }
-        setCoverImage(String(reader.result));
-        setCoverSource("canva");
+      image.onload = async () => {
+        const validation = validateImportedImage({ width: image.naturalWidth, height: image.naturalHeight, targetWidth: outputPixels.width, targetHeight: outputPixels.height });
+        const normalized = await normalizeCoverImage(String(reader.result));
+        setCoverImage(normalized.dataUrl);
+        setCoverSource(source);
         setCanvaFileName(file.name);
-        setCanvaFileStatus(image.naturalWidth >= outputPixels.width && image.naturalHeight >= outputPixels.height
+        setCanvaFileStatus(validation.ratioOk && validation.resolutionOk
           ? `규격 확인 완료 · ${image.naturalWidth.toLocaleString()}×${image.naturalHeight.toLocaleString()}px`
-          : `표지에 적용했지만 해상도가 낮아요 · 권장 ${outputPixels.width.toLocaleString()}×${outputPixels.height.toLocaleString()}px`);
-        setToast("Canva 표지를 전체 전개도에 적용했어요.");
+          : `자동 맞춤 완료 · ${!validation.ratioOk ? "비율을 중앙 기준으로 잘랐고 " : ""}${!validation.resolutionOk ? "인쇄 권장 해상도보다 낮아요" : "300DPI 규격입니다"}`);
+        setToast(source === "canva" ? "Canva 표지를 정확한 전개도 규격에 적용했어요." : "배경 이미지를 정확한 전개도 규격에 적용했어요.");
         setTimeout(() => setToast(""), 2600);
       };
       image.src = String(reader.result);
@@ -386,7 +544,7 @@ export default function Home() {
             {coverWorkflow === "ai" ? <>
               <div className="provider-picker" aria-label="표지 AI 선택">
                 <button className={provider === "auto" ? "active" : ""} onClick={() => setProvider("auto")}>✦ 자동</button>
-                {aiProviders.map((item) => <button key={item.id} className={provider === item.id ? "active" : ""} onClick={() => setProvider(item.id)}><img src={item.icon} alt="" />{item.name.split(" ").slice(-1)[0]}</button>)}
+                {aiProviders.map((item) => <button key={item.id} className={provider === item.id ? "active" : ""} onClick={() => setProvider(item.id)}><Image src={item.icon} alt="" width={16} height={16} />{item.name.split(" ").slice(-1)[0]}</button>)}
               </div>
               <div className="prompt-suggestions">
                 <button onClick={() => setCoverPrompt("여백이 넉넉한 미니멀 에세이, 따뜻한 아이보리 종이와 작은 식물 드로잉")}>미니멀 에세이</button>
@@ -414,24 +572,33 @@ export default function Home() {
           </aside>
 
           <div className="canvas-zone">
-            <div className="canvas-head"><span>전체 표지 전개도</span>{coverSource !== "starter" && <em className={`cover-source ${coverSource}`}>{coverSource === "canva" ? "Canva 적용됨" : "AI 적용됨"}</em>}<div className="spread-meta"><b>{trim.label}</b><span>{pageCount}P</span><span>책등 {spineWidth.toFixed(2)}mm</span></div><button className={showGuides ? "guide-toggle active" : "guide-toggle"} onClick={() => setShowGuides((value) => !value)}>가이드 {showGuides ? "ON" : "OFF"}</button><button className="zoom">− &nbsp; 80% &nbsp; +</button></div>
+            <div className="canvas-head"><span>전체 표지 전개도</span>{coverSource !== "starter" && <em className={`cover-source ${coverSource}`}>{coverSource === "canva" ? "Canva 적용됨" : "AI 적용됨"}</em>}<div className="spread-meta"><b>{trim.label}</b><span>{pageCount}P</span><span>책등 {spineWidth.toFixed(2)}mm</span></div><button className={showGuides ? "guide-toggle active" : "guide-toggle"} onClick={() => setShowGuides((value) => !value)}>가이드 {showGuides ? "ON" : "OFF"}</button><div className="zoom"><button aria-label="축소" onClick={() => setZoom((value) => clampZoom(value - 10))}>−</button><output>{zoom}%</output><button aria-label="확대" onClick={() => setZoom((value) => clampZoom(value + 10))}>＋</button></div></div>
             <div className="cover-stage">
+              <div className="artboard-shell" style={{ width: `${zoom}%` }}>
               <div className="ruler ruler-top"><span>0</span><span>{Math.round(spreadWidth / 4)}</span><span>{Math.round(spreadWidth / 2)}</span><span>{Math.round(spreadWidth * 0.75)}</span><span>{Math.round(spreadWidth)}mm</span></div>
-              <div className={`cover-spread ${coverImage ? "has-image" : ""}`} style={{ aspectRatio: `${spreadWidth} / ${spreadHeight}`, gridTemplateColumns: spreadColumns, ...(coverImage ? { backgroundImage: `url(${coverImage})` } : {}) } as React.CSSProperties}>
+              <div className={`cover-spread ${coverImage ? "has-image" : ""}`} style={{ aspectRatio: `${spreadWidth} / ${spreadHeight}`, gridTemplateColumns: spreadColumns, backgroundColor, backgroundSize: `${backgroundScale}%`, backgroundPosition: `${backgroundX}% ${backgroundY}%`, ...(coverImage ? { backgroundImage: `url(${coverImage})` } : {}) } as React.CSSProperties}>
                 <div className="cover-grain" />
                 {showGuides && <><div className="bleed-guide" /><div className="safe-guide" /></>}
                 {hasFlaps && <section className="spread-flap flap-left"><small>날개 {flapWidth}mm</small><p>저자 소개와 책의 이야기를 담는 공간</p></section>}
                 <section className="spread-back"><span className="panel-label">뒤표지</span><p>어떤 시작은 아주 조용합니다.<br />이 책은 매일의 작은 장면을 천천히 기록하는 방법을 이야기합니다.</p><i>PAGEONE · 2026</i></section>
-                <section className="spread-spine"><span className="spine-title">{title}</span>{showSpineAuthor && <small className="spine-author">{author}</small>}</section>
-                <section className="spread-front"><span className="panel-label">앞표지</span><div className="cover-copy"><span className="cover-symbol">✦</span><h2>{title}</h2><p>{subtitle}</p></div><div className="cover-author">{author} 지음</div></section>
+                <section className="spread-spine"><span className={selectedText === "spineTitle" ? "spine-title selected-text" : "spine-title"} onClick={() => { setSelectedText("spineTitle"); setActiveTool("text"); }} style={{ fontFamily: textStyles.spineTitle.fontFamily, fontSize: textStyles.spineTitle.fontSize, color: textStyles.spineTitle.color, transform: `translate(${textStyles.spineTitle.offsetX}px,${textStyles.spineTitle.offsetY}px)` }}>{title}</span>{showSpineAuthor && <small className={selectedText === "spineAuthor" ? "spine-author selected-text" : "spine-author"} onClick={() => { setSelectedText("spineAuthor"); setActiveTool("text"); }} style={{ fontFamily: textStyles.spineAuthor.fontFamily, fontSize: textStyles.spineAuthor.fontSize, color: textStyles.spineAuthor.color, transform: `translate(${textStyles.spineAuthor.offsetX}px,${textStyles.spineAuthor.offsetY}px)` }}>{author}</small>}</section>
+                <section className="spread-front"><span className="panel-label">앞표지</span><div className="cover-copy"><span className="cover-symbol">✦</span><h2 className={selectedText === "title" ? "selected-text" : ""} onClick={() => { setSelectedText("title"); setActiveTool("text"); }} style={{ fontFamily: textStyles.title.fontFamily, fontSize: textStyles.title.fontSize, color: textStyles.title.color, textAlign: textStyles.title.align, transform: `translate(${textStyles.title.offsetX}px,${textStyles.title.offsetY}px)` }}>{title}</h2><p className={selectedText === "subtitle" ? "selected-text" : ""} onClick={() => { setSelectedText("subtitle"); setActiveTool("text"); }} style={{ fontFamily: textStyles.subtitle.fontFamily, fontSize: textStyles.subtitle.fontSize, color: textStyles.subtitle.color, textAlign: textStyles.subtitle.align, transform: `translate(${textStyles.subtitle.offsetX}px,${textStyles.subtitle.offsetY}px)` }}>{subtitle}</p></div><div className={selectedText === "author" ? "cover-author selected-text" : "cover-author"} onClick={() => { setSelectedText("author"); setActiveTool("text"); }} style={{ fontFamily: textStyles.author.fontFamily, fontSize: textStyles.author.fontSize, color: textStyles.author.color, textAlign: textStyles.author.align, transform: `translate(${textStyles.author.offsetX}px,${textStyles.author.offsetY}px)` }}>{author} 지음</div>{customTexts.map((item) => <input key={item.id} className="custom-cover-text" aria-label="추가 문구" value={item.text} onChange={(event) => setCustomTexts((items) => items.map((text) => text.id === item.id ? { ...text, text: event.target.value } : text))} style={{ left: `${item.x}%`, top: `${item.y}%`, fontFamily: item.fontFamily, fontSize: item.fontSize, color: item.color, textAlign: item.align }} />)}</section>
                 {hasFlaps && <section className="spread-flap flap-right"><small>날개 {flapWidth}mm</small><p>책 속의 문장과 출판 정보를 담는 공간</p></section>}
               </div>
               <div className="spread-caption"><span>← 뒤표지</span><b>{spineWidth.toFixed(2)}mm</b><span>앞표지 →</span></div>
-              <div className="cover-tools">
-                <button title="텍스트 추가">T</button><button title="이미지 배치">▧</button><button title="색상 변경">◐</button><button title="정렬">↔</button>
               </div>
+              <div className="cover-tools">
+                <button className={activeTool === "text" ? "active" : ""} title="텍스트 추가" onClick={() => setActiveTool(activeTool === "text" ? null : "text")}>T</button><button className={activeTool === "image" ? "active" : ""} title="이미지 배치" onClick={() => setActiveTool(activeTool === "image" ? null : "image")}>▧</button><button className={activeTool === "color" ? "active" : ""} title="색상 변경" onClick={() => setActiveTool(activeTool === "color" ? null : "color")}>◐</button><button className={activeTool === "align" ? "active" : ""} title="정렬" onClick={() => setActiveTool(activeTool === "align" ? null : "align")}>↔</button>
+              </div>
+              {activeTool && <div className="editor-popover">
+                <div className="editor-popover-head"><b>{activeTool === "text" ? "텍스트 편집" : activeTool === "image" ? "배경 이미지" : activeTool === "color" ? "표지 색상" : "위치와 정렬"}</b><button aria-label="편집 도구 닫기" onClick={() => setActiveTool(null)}>×</button></div>
+                {activeTool === "text" && <><label>편집 대상<select value={selectedText} onChange={(event) => setSelectedText(event.target.value as TextTarget)}><option value="title">앞표지 제목</option><option value="subtitle">부제</option><option value="author">저자명</option><option value="spineTitle">책등 제목</option><option value="spineAuthor">책등 작가명</option></select></label><label>글꼴<select value={textStyles[selectedText].fontFamily} onChange={(event) => patchTextStyle({ fontFamily: event.target.value })}><option>Noto Serif KR</option><option>Noto Sans KR</option><option>Georgia</option><option>Arial</option></select></label><label>크기<input type="range" min="5" max="56" value={textStyles[selectedText].fontSize} onChange={(event) => patchTextStyle({ fontSize: Number(event.target.value) })} /><output>{textStyles[selectedText].fontSize}px</output></label><label>글자색<input type="color" value={textStyles[selectedText].color} onChange={(event) => patchTextStyle({ color: event.target.value })} /></label><button className="add-text-button" onClick={addCustomText}>＋ 텍스트 추가</button></>}
+                {activeTool === "image" && <><label className="image-replace">이미지 교체<input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => importCanvaCover(event.target.files?.[0], "ai")} /></label><label>확대<input type="range" min="100" max="200" value={backgroundScale} onChange={(event) => setBackgroundScale(Number(event.target.value))} /><output>{backgroundScale}%</output></label><label>가로 위치<input type="range" min="0" max="100" value={backgroundX} onChange={(event) => setBackgroundX(Number(event.target.value))} /></label><label>세로 위치<input type="range" min="0" max="100" value={backgroundY} onChange={(event) => setBackgroundY(Number(event.target.value))} /></label></>}
+                {activeTool === "color" && <><label>배경색<input type="color" value={backgroundColor} onChange={(event) => setBackgroundColor(event.target.value)} /></label><div className="color-swatches">{["#d95b42", "#182a3b", "#315447", "#ede5d4", "#2a2028"].map((color) => <button key={color} aria-label={`${color} 색상`} style={{ background: color }} onClick={() => setBackgroundColor(color)} />)}</div></>}
+                {activeTool === "align" && <><div className="align-buttons"><button onClick={() => patchTextStyle({ align: "left" })}>왼쪽</button><button onClick={() => patchTextStyle({ align: "center" })}>가운데</button><button onClick={() => patchTextStyle({ align: "right" })}>오른쪽</button></div><div className="nudge-buttons"><button aria-label="위로 이동" onClick={() => patchTextStyle({ offsetY: textStyles[selectedText].offsetY - 2 })}>↑</button><button aria-label="왼쪽으로 이동" onClick={() => patchTextStyle({ offsetX: textStyles[selectedText].offsetX - 2 })}>←</button><button aria-label="위치 초기화" onClick={() => patchTextStyle({ offsetX: 0, offsetY: 0 })}>•</button><button aria-label="오른쪽으로 이동" onClick={() => patchTextStyle({ offsetX: textStyles[selectedText].offsetX + 2 })}>→</button><button aria-label="아래로 이동" onClick={() => patchTextStyle({ offsetY: textStyles[selectedText].offsetY + 2 })}>↓</button></div></>}
+              </div>}
             </div>
-            <div className="canvas-footer"><span>{trim.label} {trim.width}×{trim.height}mm · {pageCount}P · 책등 {spineWidth.toFixed(2)}mm · {hasFlaps ? `날개 ${flapWidth}mm` : "날개 없음"}</span><span>전체 {spreadWidth}×{spreadHeight}mm · {outputPixels.width.toLocaleString()}×{outputPixels.height.toLocaleString()}px · 300DPI ✓</span></div>
+            <div className="canvas-footer"><span>{trim.label} {trim.width}×{trim.height}mm · {pageCount}P · 책등 {spineWidth.toFixed(2)}mm · {hasFlaps ? `날개 ${flapWidth}mm` : "날개 없음"}</span><div><button onClick={downloadPrintPng}>300 DPI PNG</button><button onClick={downloadPrintPdf}>인쇄용 PDF</button></div><span>전체 {spreadWidth}×{spreadHeight}mm · {outputPixels.width.toLocaleString()}×{outputPixels.height.toLocaleString()}px</span></div>
           </div>
 
           <aside className="tip-panel">
@@ -480,7 +647,7 @@ export default function Home() {
             <div className="ai-context"><span>현재 읽는 중</span><b>프롤로그 · 시작하는 마음</b></div>
             <div className="provider-picker compact" aria-label="글쓰기 AI 선택">
               <button className={provider === "auto" ? "active" : ""} onClick={() => setProvider("auto")}>✦ 자동</button>
-              {aiProviders.map((item) => <button key={item.id} className={provider === item.id ? "active" : ""} onClick={() => setProvider(item.id)}><img src={item.icon} alt="" />{item.name.split(" ").slice(-1)[0]}</button>)}
+              {aiProviders.map((item) => <button key={item.id} className={provider === item.id ? "active" : ""} onClick={() => setProvider(item.id)}><Image src={item.icon} alt="" width={16} height={16} />{item.name.split(" ").slice(-1)[0]}</button>)}
             </div>
             <p className="ai-greeting">어떤 도움이 필요하세요? 문장을 다듬거나, 다음 내용을 함께 구상할 수 있어요.</p>
             <div className="quick-actions">
@@ -526,7 +693,7 @@ export default function Home() {
               {aiProviders.map((item) => {
                 const status = keyStatus[item.id];
                 return <article className="api-card" key={item.id} style={{ "--provider-color": item.color } as React.CSSProperties}>
-                  <div className="provider-identity"><div className="provider-icon"><img src={item.icon} alt={`${item.name} 아이콘`} /></div><div><h3>{item.name}</h3><span>{item.model}</span></div><i className={apiKeys[item.id] ? "connected" : ""}>{apiKeys[item.id] ? "키 입력됨" : "연결 안 됨"}</i></div>
+                  <div className="provider-identity"><div className="provider-icon"><Image src={item.icon} alt={`${item.name} 아이콘`} width={28} height={28} /></div><div><h3>{item.name}</h3><span>{item.model}</span></div><i className={apiKeys[item.id] ? "connected" : ""}>{apiKeys[item.id] ? "키 입력됨" : "연결 안 됨"}</i></div>
                   <label htmlFor={`${item.id}-key`}>API KEY</label>
                   <div className="key-field"><input id={`${item.id}-key`} type="password" autoComplete="off" value={apiKeys[item.id]} onChange={(event) => { setApiKeys((value) => ({ ...value, [item.id]: event.target.value })); setKeyStatus((value) => ({ ...value, [item.id]: "idle" })); }} placeholder={item.id === "openai" ? "sk-proj-••••••••••••" : item.id === "gemini" ? "AIza••••••••••••" : "sk-ant-••••••••••••"} /><span>•••</span></div>
                   <div className="key-feedback" data-status={status}>{status === "testing" ? "연결을 확인하고 있어요…" : status === "success" ? "✓ 연결에 성공했습니다" : status === "error" ? "키를 확인해 주세요" : "키는 암호화된 HTTPS 요청에만 사용됩니다."}</div>

@@ -20,7 +20,7 @@ export async function POST(request: Request) {
       if (response.ok) { const data = await response.json(); const output = data.candidates?.[0]?.content?.parts?.map((part: { text?: string }) => part.text || "").join("").trim(); if (output) return NextResponse.json({ text: output, provider: "gemini" }); }
     }
     if (engine === "claude" && anthropicKey) {
-      const response = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json", "x-api-key": anthropicKey, "anthropic-version": "2023-06-01" }, body: JSON.stringify({ model: "claude-sonnet-5", max_tokens: 450, messages: [{ role: "user", content: prompt }] }) });
+      const response = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json", "x-api-key": anthropicKey, "anthropic-version": "2023-06-01" }, body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 450, messages: [{ role: "user", content: prompt }] }) });
       if (response.ok) { const data = await response.json(); const output = data.content?.find((part: { type: string }) => part.type === "text")?.text?.trim(); if (output) return NextResponse.json({ text: output, provider: "claude" }); }
     }
   }
