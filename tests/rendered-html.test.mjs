@@ -108,6 +108,9 @@ test("manuscript editor exposes chapter, page, contents, and working AI actions"
   assert.match(page, /aria-label="글꼴"/);
   assert.match(page, /aria-label="글자 크기"/);
   assert.match(page, /onMouseUp=\{syncEditorToolbar\}/);
+  assert.match(page, /pageLayout/);
+  assert.match(page, /getNextManuscriptPage/);
+  assert.match(page, /두 면/);
   assert.match(page, /document\.execCommand/);
   assert.match(page, /suppressContentEditableWarning/);
   assert.match(page, /setManuscript/);
@@ -120,6 +123,8 @@ test("manuscript editor exposes chapter, page, contents, and working AI actions"
   assert.match(css, /\.rich-manuscript-editor blockquote/);
   assert.match(css, /\.font-family-select/);
   assert.match(css, /\.font-size-select/);
+  assert.match(css, /\.manuscript-spread/);
+  assert.match(css, /\.facing-page/);
   assert.match(writeRoute, /gpt-5\.4-mini/);
   assert.match(writeRoute, /gemini-3\.5-flash/);
   assert.match(writeRoute, /providerLabel/);

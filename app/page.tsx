@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { buildSinglePageJpegPdf, calculateCoverImagePlacement, calculateCoverSpec, calculatePreviewDimensions, clampZoom, isSupportedCoverImageFile, moveCustomTextPosition, removeCustomTextById, validateImportedImage } from "./lib/cover-spec.mjs";
-import { addManuscriptChapter, addManuscriptPage, buildTableOfContents, closestEditorFontSize, moveManuscriptChapter, plainTextFromEditorHtml, removeManuscriptChapter, removeManuscriptPage, sanitizeEditorHtml, toEditorHtml, updateManuscriptPage } from "./lib/manuscript.mjs";
+import { addManuscriptChapter, addManuscriptPage, buildTableOfContents, closestEditorFontSize, getNextManuscriptPage, moveManuscriptChapter, plainTextFromEditorHtml, removeManuscriptChapter, removeManuscriptPage, sanitizeEditorHtml, toEditorHtml, updateManuscriptPage } from "./lib/manuscript.mjs";
 
 type Step = "cover" | "edit" | "publish";
 type Provider = "openai" | "gemini" | "claude";
@@ -17,6 +17,7 @@ type CustomText = TextStyle & { id: number; text: string; x: number; y: number }
 type ManuscriptPage = { id: number; content: string };
 type ManuscriptChapter = { id: number; kicker: string; title: string; pages: ManuscriptPage[] };
 type EditorView = "page" | "toc";
+type PageLayout = "single" | "spread";
 
 const defaultTextStyles: Record<TextTarget, TextStyle> = {
   title: { fontFamily: "Noto Serif KR", fontSize: 38, color: "#ffffff", align: "center", offsetX: 0, offsetY: 0 },
@@ -110,6 +111,7 @@ export default function Home() {
   const [activeChapterId, setActiveChapterId] = useState(1);
   const [activePageId, setActivePageId] = useState(101);
   const [editorView, setEditorView] = useState<EditorView>("page");
+  const [pageLayout, setPageLayout] = useState<PageLayout>("single");
   const [paragraphStyle, setParagraphStyle] = useState("p");
   const [manuscriptFont, setManuscriptFont] = useState("Noto Serif KR");
   const [manuscriptFontSize, setManuscriptFontSize] = useState(14);
@@ -210,6 +212,8 @@ export default function Home() {
   const activeBookPage = (activeTocEntry?.startPage ?? 3) + Math.max(0, activePageIndex);
   const wordCount = useMemo(() => manuscript.reduce((total, chapter) => total + chapter.pages.reduce((sum, page) => sum + plainTextFromEditorHtml(toEditorHtml(page.content)).replace(/\s/g, "").length, 0), 0), [manuscript]);
   const manuscriptPageCount = flatPages.length;
+  const facingPage = getNextManuscriptPage(manuscript, activeChapter.id, activePage.id) as { chapterId: number; page: ManuscriptPage } | null;
+  const facingChapter = facingPage ? manuscript.find((chapter) => chapter.id === facingPage.chapterId) : null;
 
   useEffect(() => {
     if (editorView === "page" && richEditorRef.current) richEditorRef.current.innerHTML = toEditorHtml(activePage.content);
@@ -913,6 +917,7 @@ export default function Home() {
               <select className="font-size-select" aria-label="글자 크기" value={manuscriptFontSize} onMouseDown={rememberEditorSelection} onChange={(event) => applyFontSize(Number(event.target.value))} disabled={editorView === "toc"}>{manuscriptFontSizes.map((size) => <option value={size} key={size}>{size}px</option>)}</select>
               <button type="button" title="굵게" disabled={editorView === "toc"} onMouseDown={rememberEditorSelection} onClick={() => applyInlineStyle("bold")}><b>B</b></button><button type="button" title="기울임" disabled={editorView === "toc"} onMouseDown={rememberEditorSelection} onClick={() => applyInlineStyle("italic")}><i>I</i></button><button type="button" title="밑줄" disabled={editorView === "toc"} onMouseDown={rememberEditorSelection} onClick={() => applyInlineStyle("underline")}><u>U</u></button><span />
               <button type="button" onClick={showTableOfContents}>☷ 목차</button><button type="button" className="add-page-toolbar" onClick={createPage}>＋ 본문 페이지 추가</button><button type="button" className="delete-page-toolbar" onClick={deletePage}>현재 페이지 삭제</button>
+              <div className="page-layout-toggle" role="group" aria-label="페이지 보기"><button type="button" className={pageLayout === "single" ? "active" : ""} onClick={() => setPageLayout("single")}>한 면</button><button type="button" className={pageLayout === "spread" ? "active" : ""} onClick={() => setPageLayout("spread")}>두 면</button></div>
               <small>{wordCount.toLocaleString()}자 · 실제 {manuscriptPageCount}쪽</small>
             </div>
             <div className="page-desk">
@@ -920,13 +925,13 @@ export default function Home() {
                 <div className="running-head">{title}</div><span className="chapter-kicker">CONTENTS</span><h2>목차</h2>
                 <div className="toc-list">{tocEntries.map((entry: { chapterId: number; kicker: string; title: string; startPage: number; pageCount: number }) => <button key={entry.chapterId} onClick={() => selectChapter(manuscript.find((chapter) => chapter.id === entry.chapterId) ?? manuscript[0])}><span>{entry.kicker}</span><b>{entry.title}</b><i /><strong>{entry.startPage}</strong></button>)}</div>
                 <p className="toc-note">장과 페이지 순서를 바꾸면 목차와 쪽 번호가 자동으로 갱신됩니다.</p>
-              </article> : <article className="manuscript-page print-page">
+              </article> : <div className={`manuscript-spread ${pageLayout}`}><article className="manuscript-page print-page">
                 <div className="running-head">{title}</div>
                 <input className="chapter-kicker-input" value={activeChapter.kicker} onChange={(event) => patchActiveChapter({ kicker: event.target.value })} aria-label="장 구분" />
                 <input className="chapter-title-input" value={activeChapter.title} onChange={(event) => patchActiveChapter({ title: event.target.value })} aria-label="장 제목" />
                 <div ref={richEditorRef} className="rich-manuscript-editor" contentEditable suppressContentEditableWarning role="textbox" aria-label="본문 원고" aria-multiline="true" data-placeholder="이 페이지의 원고를 작성하세요…" onInput={commitRichEditor} onMouseUp={syncEditorToolbar} onKeyUp={syncEditorToolbar} onBlur={rememberEditorSelection} />
                 <div className="page-number">{activeBookPage}</div>
-              </article>}
+              </article>{pageLayout === "spread" && (facingPage && facingChapter ? <button type="button" className="manuscript-page facing-page" onClick={() => navigatePage(1)} aria-label={`다음 페이지 ${activeBookPage + 1} 편집`}><div className="running-head">{title}</div>{facingChapter.pages[0]?.id === facingPage.page.id && <><span className="chapter-kicker">{facingChapter.kicker}</span><h2>{facingChapter.title}</h2></>}<div className="print-page-body" dangerouslySetInnerHTML={{ __html: toEditorHtml(facingPage.page.content) }} /><span className="facing-page-hint">클릭하여 편집</span><div className="page-number">{activeBookPage + 1}</div></button> : <button type="button" className="manuscript-page facing-page facing-empty" onClick={createPage}><b>＋ 다음 페이지 추가</b><span>두 번째 면에 새 원고 페이지를 만듭니다.</span></button>)}</div>}
               <nav className="page-navigation" aria-label="본문 페이지 이동"><button disabled={activeFlatPageIndex <= 0} onClick={() => navigatePage(-1)}>← 이전</button><span>{editorView === "toc" ? "목차" : `${activeFlatPageIndex + 1} / ${manuscriptPageCount} 페이지`}</span><button disabled={activeFlatPageIndex >= flatPages.length - 1} onClick={() => navigatePage(1)}>다음 →</button></nav>
             </div>
           </div>

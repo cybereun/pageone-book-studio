@@ -6,6 +6,7 @@ import {
   addManuscriptPage,
   buildTableOfContents,
   closestEditorFontSize,
+  getNextManuscriptPage,
   moveManuscriptChapter,
   removeManuscriptChapter,
   removeManuscriptPage,
@@ -72,4 +73,14 @@ test("keeps safe font family and size styles while removing unsafe styles", () =
 test("matches a clicked text size to the nearest toolbar size", () => {
   assert.equal(closestEditorFontSize("23.6px", [10, 12, 14, 18, 24, 32, 48]), 24);
   assert.equal(closestEditorFontSize("13px", [10, 12, 14, 18, 24, 32, 48]), 12);
+});
+
+test("finds the next facing page across chapter boundaries", () => {
+  const chapters = [
+    { id: 1, pages: [{ id: 11 }, { id: 12 }] },
+    { id: 2, pages: [{ id: 21 }] },
+  ];
+  assert.deepEqual(getNextManuscriptPage(chapters, 1, 11), { chapterId: 1, page: { id: 12 } });
+  assert.deepEqual(getNextManuscriptPage(chapters, 1, 12), { chapterId: 2, page: { id: 21 } });
+  assert.equal(getNextManuscriptPage(chapters, 2, 21), null);
 });

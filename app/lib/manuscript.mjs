@@ -13,6 +13,12 @@ export function closestEditorFontSize(value, sizes) {
   return sizes.reduce((closest, size) => Math.abs(size - parsed) < Math.abs(closest - parsed) ? size : closest, sizes[0]);
 }
 
+export function getNextManuscriptPage(chapters, chapterId, pageId) {
+  const pages = chapters.flatMap((chapter) => chapter.pages.map((page) => ({ chapterId: chapter.id, page })));
+  const index = pages.findIndex((entry) => entry.chapterId === chapterId && entry.page.id === pageId);
+  return index >= 0 ? pages[index + 1] ?? null : null;
+}
+
 export function sanitizeEditorHtml(value) {
   const withoutUnsafeBlocks = String(value || "")
     .replace(/<!--[\s\S]*?-->/g, "")
