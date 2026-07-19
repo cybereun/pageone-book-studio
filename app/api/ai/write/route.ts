@@ -4,20 +4,35 @@ const demo = "문장 사이에 잠시 머물 틈을 두자, 그날의 공기와 
 
 export async function POST(request: Request) {
   const { request: userRequest, text, title } = await request.json();
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return NextResponse.json({ text: demo, demo: true });
+  const openaiKey = process.env.OPENAI_API_KEY;
+  const geminiKey = process.env.GEMINI_API_KEY;
+  const prompt = `역할: 한국어 출판 편집자\n목표: 저자의 목소리와 사실을 보존하며 요청에 맞는 출판 원고를 제안한다.\n책 제목: ${title}\n요청: ${userRequest}\n현재 원고:\n${text}\n\n출력: 설명 없이 원고에 바로 붙일 수 있는 한국어 문장만 300자 이내로 작성한다.`;
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model: "gpt-5.6",
-      input: `역할: 한국어 출판 편집자\n목표: 저자의 목소리와 사실을 보존하며 요청에 맞는 출판 원고를 제안한다.\n책 제목: ${title}\n요청: ${userRequest}\n현재 원고:\n${text}\n\n출력: 설명 없이 원고에 바로 붙일 수 있는 한국어 문장만 300자 이내로 작성한다.`,
-      text: { verbosity: "low" },
-    }),
-  });
-  if (!response.ok) return NextResponse.json({ text: demo, demo: true });
-  const data = await response.json();
-  const output = data.output?.flatMap((item: { content?: Array<{ type: string; text?: string }> }) => item.content ?? []).find((item: { type: string }) => item.type === "output_text")?.text;
-  return NextResponse.json({ text: output || demo });
+  if (openaiKey) {
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
+      body: JSON.stringify({ model: "gpt-5.6", input: prompt, text: { verbosity: "low" } }),
+    });
+    if (response.ok) {
+      const data = await response.json();
+      const output = data.output?.flatMap((item: { content?: Array<{ type: string; text?: string }> }) => item.content ?? []).find((item: { type: string }) => item.type === "output_text")?.text;
+      if (output) return NextResponse.json({ text: output, provider: "openai" });
+    }
+  }
+
+  if (geminiKey) {
+    const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": geminiKey },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 450 } }),
+    });
+    if (response.ok) {
+      const data = await response.json();
+      const output = data.candidates?.[0]?.content?.parts?.map((part: { text?: string }) => part.text || "").join("").trim();
+      if (output) return NextResponse.json({ text: output, provider: "gemini" });
+    }
+  }
+
+  return NextResponse.json({ text: demo, demo: true });
 }
