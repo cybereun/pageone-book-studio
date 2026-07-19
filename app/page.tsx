@@ -88,6 +88,9 @@ const initialManuscript: ManuscriptChapter[] = [
   { id: 4, kicker: "에필로그", title: "다시, 첫 페이지", pages: [{ id: 401, content: "마지막 페이지는 다음 기록을 위한 첫 페이지이기도 하다." }] },
 ];
 
+const manuscriptFonts = ["Noto Serif KR", "Noto Sans KR", "Pretendard", "Nanum Myeongjo", "Nanum Gothic"];
+const manuscriptFontSizes = [10, 12, 14, 18, 24, 32, 48];
+
 export default function Home() {
   const [step, setStep] = useState<Step>("cover");
   const [title, setTitle] = useState("느리게 쓰는 마음");
@@ -105,6 +108,8 @@ export default function Home() {
   const [activePageId, setActivePageId] = useState(101);
   const [editorView, setEditorView] = useState<EditorView>("page");
   const [paragraphStyle, setParagraphStyle] = useState("p");
+  const [manuscriptFont, setManuscriptFont] = useState("Noto Serif KR");
+  const [manuscriptFontSize, setManuscriptFontSize] = useState(14);
   const richEditorRef = useRef<HTMLDivElement | null>(null);
   const editorSelectionRef = useRef<Range | null>(null);
   const [aiInput, setAiInput] = useState("첫 문단을 더 몰입감 있게 다듬어줘");
@@ -561,7 +566,6 @@ export default function Home() {
   function commitRichEditor() {
     if (!richEditorRef.current) return;
     const html = sanitizeEditorHtml(richEditorRef.current.innerHTML);
-    if (richEditorRef.current.innerHTML !== html) richEditorRef.current.innerHTML = html;
     updateActivePage(html);
   }
 
@@ -571,28 +575,53 @@ export default function Home() {
     if (range && richEditorRef.current?.contains(range.commonAncestorContainer)) editorSelectionRef.current = range.cloneRange();
   }
 
-  function restoreEditorSelection() {
+  function ensureEditorSelection() {
     if (!richEditorRef.current) return false;
     richEditorRef.current.focus();
     const range = editorSelectionRef.current;
     const selection = window.getSelection();
-    if (!range || !selection) return false;
+    if (!selection) return false;
+    if (!range || !richEditorRef.current.contains(range.commonAncestorContainer)) {
+      if (!richEditorRef.current.lastChild) richEditorRef.current.innerHTML = "<p><br></p>";
+      const target = richEditorRef.current.lastElementChild ?? richEditorRef.current;
+      const nextRange = document.createRange();
+      nextRange.selectNodeContents(target);
+      nextRange.collapse(false);
+      editorSelectionRef.current = nextRange;
+    }
     selection.removeAllRanges();
-    selection.addRange(range);
+    selection.addRange(editorSelectionRef.current!);
     return true;
   }
 
   function applyParagraphStyle(style: string) {
     setParagraphStyle(style);
-    if (!restoreEditorSelection()) return;
-    document.execCommand("formatBlock", false, style);
+    if (!ensureEditorSelection()) return;
+    document.execCommand("formatBlock", false, `<${style}>`);
     commitRichEditor();
     rememberEditorSelection();
   }
 
   function applyInlineStyle(command: "bold" | "italic" | "underline") {
-    if (!restoreEditorSelection()) return;
+    if (!ensureEditorSelection()) return;
     document.execCommand(command, false);
+    commitRichEditor();
+    rememberEditorSelection();
+  }
+
+  function applyFontFamily(font: string) {
+    setManuscriptFont(font);
+    if (!ensureEditorSelection()) return;
+    document.execCommand("fontName", false, font);
+    commitRichEditor();
+    rememberEditorSelection();
+  }
+
+  function applyFontSize(size: number) {
+    setManuscriptFontSize(size);
+    if (!ensureEditorSelection()) return;
+    const legacySize = Math.max(1, manuscriptFontSizes.indexOf(size) + 1);
+    document.execCommand("fontSize", false, String(legacySize));
     commitRichEditor();
     rememberEditorSelection();
   }
@@ -860,6 +889,8 @@ export default function Home() {
           <div className="editor-zone">
             <div className="editor-toolbar">
               <select aria-label="본문 스타일" value={paragraphStyle} onMouseDown={rememberEditorSelection} onChange={(event) => applyParagraphStyle(event.target.value)} disabled={editorView === "toc"}><option value="p">본문</option><option value="h2">제목 1</option><option value="blockquote">인용문</option></select>
+              <select className="font-family-select" aria-label="글꼴" value={manuscriptFont} onMouseDown={rememberEditorSelection} onChange={(event) => applyFontFamily(event.target.value)} disabled={editorView === "toc"}>{manuscriptFonts.map((font) => <option value={font} key={font}>{font}</option>)}</select>
+              <select className="font-size-select" aria-label="글자 크기" value={manuscriptFontSize} onMouseDown={rememberEditorSelection} onChange={(event) => applyFontSize(Number(event.target.value))} disabled={editorView === "toc"}>{manuscriptFontSizes.map((size) => <option value={size} key={size}>{size}px</option>)}</select>
               <button type="button" title="굵게" disabled={editorView === "toc"} onMouseDown={rememberEditorSelection} onClick={() => applyInlineStyle("bold")}><b>B</b></button><button type="button" title="기울임" disabled={editorView === "toc"} onMouseDown={rememberEditorSelection} onClick={() => applyInlineStyle("italic")}><i>I</i></button><button type="button" title="밑줄" disabled={editorView === "toc"} onMouseDown={rememberEditorSelection} onClick={() => applyInlineStyle("underline")}><u>U</u></button><span />
               <button type="button" onClick={showTableOfContents}>☷ 목차</button><button type="button" className="add-page-toolbar" onClick={createPage}>＋ 본문 페이지 추가</button><button type="button" className="delete-page-toolbar" onClick={deletePage}>현재 페이지 삭제</button>
               <small>{wordCount.toLocaleString()}자 · 실제 {manuscriptPageCount}쪽</small>

@@ -18,17 +18,41 @@ export function sanitizeEditorHtml(value) {
     .replace(/<(i)(?:\s[^>]*)?>/gi, "<em>")
     .replace(/<\/(i)>/gi, "</em>");
   const allowed = new Set(["p", "h2", "blockquote", "strong", "em", "u", "br"]);
+  const fontSizes = { 1: 10, 2: 12, 3: 14, 4: 18, 5: 24, 6: 32, 7: 48 };
   return withoutUnsafeBlocks.replace(/<\/?([a-z0-9]+)(?:\s[^>]*)?>/gi, (tag, name) => {
     const normalized = String(name).toLowerCase();
+    const closing = tag.startsWith("</");
+    if (normalized === "span") {
+      if (closing) return "</span>";
+      const style = tag.match(/\sstyle\s*=\s*["']([^"']*)["']/i)?.[1] ?? "";
+      const safeStyles = [];
+      for (const declaration of style.split(";")) {
+        const [rawProperty, ...rawValue] = declaration.split(":");
+        const property = rawProperty?.trim().toLowerCase();
+        const value = rawValue.join(":").trim();
+        if (property === "font-family" && /^[\p{L}\p{N}\s,.'"()-]{1,80}$/u.test(value)) safeStyles.push(`font-family: ${value.replaceAll('"', "")}`);
+        if (property === "font-size" && /^\d{1,2}px$/.test(value) && Number.parseInt(value, 10) >= 8 && Number.parseInt(value, 10) <= 72) safeStyles.push(`font-size: ${value}`);
+      }
+      return safeStyles.length ? `<span style="${safeStyles.join("; ")}">` : "<span>";
+    }
+    if (normalized === "font") {
+      if (closing) return "</span>";
+      const face = tag.match(/\sface\s*=\s*["']([^"']*)["']/i)?.[1]?.trim() ?? "";
+      const size = tag.match(/\ssize\s*=\s*["']?([1-7])["']?/i)?.[1] ?? "";
+      const safeStyles = [];
+      if (/^[\p{L}\p{N}\s,.'"()-]{1,80}$/u.test(face)) safeStyles.push(`font-family: ${face.replaceAll('"', "")}`);
+      if (size) safeStyles.push(`font-size: ${fontSizes[size]}px`);
+      return safeStyles.length ? `<span style="${safeStyles.join("; ")}">` : "<span>";
+    }
     if (!allowed.has(normalized)) return "";
     if (normalized === "br") return "<br>";
-    return tag.startsWith("</") ? `</${normalized}>` : `<${normalized}>`;
+    return closing ? `</${normalized}>` : `<${normalized}>`;
   });
 }
 
 export function toEditorHtml(value) {
   const source = String(value || "");
-  if (/<\/?(?:p|h2|blockquote|strong|em|u|br)\b/i.test(source)) return sanitizeEditorHtml(source);
+  if (/<\/?(?:p|h2|blockquote|strong|em|u|br|span|font)\b/i.test(source)) return sanitizeEditorHtml(source);
   if (!source) return "<p><br></p>";
   return source.split(/\n{2,}/).map((paragraph) => `<p>${escapeEditorText(paragraph).replaceAll("\n", "<br>")}</p>`).join("");
 }

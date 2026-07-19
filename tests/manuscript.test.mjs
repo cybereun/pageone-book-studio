@@ -56,3 +56,14 @@ test("converts plain manuscript text into safe rich editor paragraphs", () => {
   assert.equal(sanitizeEditorHtml('<h2 onclick="bad()">제목</h2><script>alert(1)</script><blockquote>인용</blockquote>'), "<h2>제목</h2><blockquote>인용</blockquote>");
   assert.equal(plainTextFromEditorHtml("<h2>제목</h2><p>본문<br>다음 줄</p>"), "제목\n본문\n다음 줄");
 });
+
+test("keeps safe font family and size styles while removing unsafe styles", () => {
+  assert.equal(
+    sanitizeEditorHtml('<span style="font-family: Pretendard; font-size: 18px; color: red; position: fixed">글꼴</span>'),
+    '<span style="font-family: Pretendard; font-size: 18px">글꼴</span>',
+  );
+  assert.equal(
+    sanitizeEditorHtml('<font face="Noto Serif KR" size="5">제목</font>'),
+    '<span style="font-family: Noto Serif KR; font-size: 24px">제목</span>',
+  );
+});
