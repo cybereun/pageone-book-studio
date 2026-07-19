@@ -211,23 +211,6 @@ export default function Home() {
     });
   }
 
-  async function normalizeCoverImage(source: string) {
-    const image = await loadImage(source);
-    const validation = validateImportedImage({ width: image.naturalWidth, height: image.naturalHeight, targetWidth: outputPixels.width, targetHeight: outputPixels.height });
-    const canvas = document.createElement("canvas");
-    canvas.width = outputPixels.width;
-    canvas.height = outputPixels.height;
-    const context = canvas.getContext("2d");
-    if (!context) throw new Error("Canvas is unavailable");
-    const sourceRatio = image.naturalWidth / image.naturalHeight;
-    const targetRatio = canvas.width / canvas.height;
-    let sx = 0, sy = 0, sw = image.naturalWidth, sh = image.naturalHeight;
-    if (sourceRatio > targetRatio) { sw = image.naturalHeight * targetRatio; sx = (image.naturalWidth - sw) / 2; }
-    else { sh = image.naturalWidth / targetRatio; sy = (image.naturalHeight - sh) / 2; }
-    context.drawImage(image, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-    return { dataUrl: canvas.toDataURL("image/png"), validation, sourceWidth: image.naturalWidth, sourceHeight: image.naturalHeight };
-  }
-
   function patchTextStyle(patch: Partial<TextStyle>) {
     if (selectedCustomTextId !== null) {
       setCustomTexts((items) => items.map((item) => item.id === selectedCustomTextId ? { ...item, ...patch } : item));
@@ -379,8 +362,7 @@ export default function Home() {
       });
       const data = await res.json();
       if (data.image) {
-        const normalized = await normalizeCoverImage(data.image);
-        setCoverImage(normalized.dataUrl);
+        setCoverImage(data.image);
         setCoverSource("ai");
         setCanvaFileName("");
         setCanvaFileStatus("");
@@ -468,22 +450,15 @@ export default function Home() {
     reader.onload = () => {
       const originalDataUrl = String(reader.result);
       const image = new Image();
-      image.onload = async () => {
+      image.onload = () => {
         const validation = validateImportedImage({ width: image.naturalWidth, height: image.naturalHeight, targetWidth: outputPixels.width, targetHeight: outputPixels.height });
         setCoverImage(originalDataUrl);
         setCoverSource(source);
-        setCanvaFileStatus("이미지를 표지에 적용했어요. 인쇄 규격으로 맞추는 중이에요…");
+        setCanvaFileStatus(validation.ratioOk && validation.resolutionOk
+          ? `적용 완료 · ${image.naturalWidth.toLocaleString()}×${image.naturalHeight.toLocaleString()}px`
+          : `적용 완료 · ${!validation.ratioOk ? "표지 비율에 맞춰 표시하고 " : ""}${!validation.resolutionOk ? "인쇄 권장 해상도보다 낮아요" : "300DPI 규격입니다"}`);
         setToast(source === "canva" ? "Canva 표지를 정확한 전개도 규격에 적용했어요." : "배경 이미지를 정확한 전개도 규격에 적용했어요.");
         setTimeout(() => setToast(""), 2600);
-        try {
-          const normalized = await normalizeCoverImage(originalDataUrl);
-          setCoverImage(normalized.dataUrl);
-          setCanvaFileStatus(validation.ratioOk && validation.resolutionOk
-            ? `규격 확인 완료 · ${image.naturalWidth.toLocaleString()}×${image.naturalHeight.toLocaleString()}px`
-            : `자동 맞춤 완료 · ${!validation.ratioOk ? "비율을 중앙 기준으로 잘랐고 " : ""}${!validation.resolutionOk ? "인쇄 권장 해상도보다 낮아요" : "300DPI 규격입니다"}`);
-        } catch {
-          setCanvaFileStatus(`원본 이미지 적용 완료 · ${image.naturalWidth.toLocaleString()}×${image.naturalHeight.toLocaleString()}px`);
-        }
       };
       image.onerror = () => setCanvaFileStatus("이미지를 읽지 못했어요. 다른 PNG 또는 JPG 파일을 선택해 주세요.");
       image.src = originalDataUrl;
@@ -660,7 +635,8 @@ export default function Home() {
             <div className="cover-stage">
               <div className="artboard-shell" style={{ width: `${zoom}%` }}>
               <div className="ruler ruler-top"><span>0</span><span>{Math.round(spreadWidth / 4)}</span><span>{Math.round(spreadWidth / 2)}</span><span>{Math.round(spreadWidth * 0.75)}</span><span>{Math.round(spreadWidth)}mm</span></div>
-              <div className={`cover-spread ${coverImage ? "has-image" : ""}`} style={{ aspectRatio: `${spreadWidth} / ${spreadHeight}`, gridTemplateColumns: spreadColumns, backgroundColor, backgroundSize: `${backgroundScale}% ${backgroundScale}%`, backgroundPosition: `${backgroundX}% ${backgroundY}%`, ...(coverImage ? { backgroundImage: `url(${coverImage})` } : {}) } as React.CSSProperties}>
+              <div className={`cover-spread ${coverImage ? "has-image" : ""}`} style={{ aspectRatio: `${spreadWidth} / ${spreadHeight}`, gridTemplateColumns: spreadColumns, backgroundColor } as React.CSSProperties}>
+                {coverImage && <Image src={coverImage} alt="" fill unoptimized className="cover-background-image" style={{ objectPosition: `${backgroundX}% ${backgroundY}%`, transform: `scale(${backgroundScale / 100})` }} />}
                 <div className="cover-grain" />
                 {showGuides && <><div className="bleed-guide" /><div className="safe-guide" /></>}
                 {hasFlaps && <section className="spread-flap flap-left"><small>날개 {flapWidth}mm</small><p>저자 소개와 책의 이야기를 담는 공간</p></section>}
