@@ -3,6 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 
 type Step = "cover" | "edit" | "publish";
+type Provider = "openai" | "gemini" | "claude";
+
+const aiProviders: Array<{ id: Provider; name: string; model: string; icon: string; link: string; color: string }> = [
+  { id: "openai", name: "OpenAI", model: "GPT · Image", icon: "/ai-logos/openai.svg", link: "https://platform.openai.com/api-keys", color: "#202724" },
+  { id: "gemini", name: "Google Gemini", model: "Gemini · Nano Banana", icon: "/ai-logos/gemini.svg", link: "https://aistudio.google.com/app/apikey", color: "#7367dc" },
+  { id: "claude", name: "Anthropic Claude", model: "Claude Sonnet", icon: "/ai-logos/anthropic.svg", link: "https://console.anthropic.com/settings/keys", color: "#d97757" },
+];
 
 const chapters = [
   { id: 1, kicker: "프롤로그", title: "시작하는 마음", pages: 3 },
@@ -29,6 +36,9 @@ export default function Home() {
   const [toast, setToast] = useState("");
   const [format, setFormat] = useState("A5");
   const [provider, setProvider] = useState("auto");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [apiKeys, setApiKeys] = useState<Record<Provider, string>>({ openai: "", gemini: "", claude: "" });
+  const [keyStatus, setKeyStatus] = useState<Record<Provider, "idle" | "testing" | "success" | "error">>({ openai: "idle", gemini: "idle", claude: "idle" });
 
   useEffect(() => {
     const cached = localStorage.getItem("pageone-draft");
@@ -41,6 +51,10 @@ export default function Home() {
         setBody(draft.body ?? body);
         setCoverImage(draft.coverImage ?? "");
       } catch { /* keep the starter manuscript */ }
+    }
+    const savedKeys = sessionStorage.getItem("pageone-api-keys");
+    if (savedKeys) {
+      try { setApiKeys({ openai: "", gemini: "", claude: "", ...JSON.parse(savedKeys) }); } catch { /* ignore invalid local state */ }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -62,7 +76,7 @@ export default function Home() {
       const res = await fetch("/api/ai/cover", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: coverPrompt, title, subtitle, author, provider }),
+        body: JSON.stringify({ prompt: coverPrompt, title, subtitle, author, provider, apiKeys }),
       });
       const data = await res.json();
       if (data.image) setCoverImage(data.image);
@@ -82,7 +96,7 @@ export default function Home() {
       const res = await fetch("/api/ai/write", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ request, text: body, title, provider }),
+        body: JSON.stringify({ request, text: body, title, provider, apiKeys }),
       });
       const data = await res.json();
       setAiReply(data.text);
@@ -105,6 +119,33 @@ export default function Home() {
     setTimeout(() => window.print(), 350);
   }
 
+  function saveKey(id: Provider) {
+    sessionStorage.setItem("pageone-api-keys", JSON.stringify(apiKeys));
+    setToast(`${aiProviders.find((item) => item.id === id)?.name} API 키를 이 브라우저 세션에 저장했어요.`);
+    setTimeout(() => setToast(""), 2600);
+  }
+
+  function deleteKey(id: Provider) {
+    const next = { ...apiKeys, [id]: "" };
+    setApiKeys(next);
+    sessionStorage.setItem("pageone-api-keys", JSON.stringify(next));
+    setKeyStatus((value) => ({ ...value, [id]: "idle" }));
+  }
+
+  async function testKey(id: Provider) {
+    if (!apiKeys[id].trim()) {
+      setKeyStatus((value) => ({ ...value, [id]: "error" }));
+      return;
+    }
+    setKeyStatus((value) => ({ ...value, [id]: "testing" }));
+    try {
+      const response = await fetch("/api/ai/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ provider: id, apiKey: apiKeys[id] }) });
+      setKeyStatus((value) => ({ ...value, [id]: response.ok ? "success" : "error" }));
+    } catch {
+      setKeyStatus((value) => ({ ...value, [id]: "error" }));
+    }
+  }
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -121,6 +162,7 @@ export default function Home() {
           <span className="save-state">{saved ? "✓ 모든 변경사항 저장됨" : "저장 중…"}</span>
           <button className="icon-button" aria-label="미리보기">⌕</button>
           <button className="avatar" aria-label="내 계정">하</button>
+          <button className="settings-button" aria-label="AI API 설정" title="AI API 설정" onClick={() => setSettingsOpen(true)}><span>⚙</span></button>
         </div>
       </header>
 
@@ -145,7 +187,8 @@ export default function Home() {
             <label>저자명<input value={author} onChange={(e) => setAuthor(e.target.value)} /></label>
             <label>어떤 표지를 원하세요?<textarea rows={4} value={coverPrompt} onChange={(e) => setCoverPrompt(e.target.value)} /></label>
             <div className="provider-picker" aria-label="표지 AI 선택">
-              {[['auto','자동'],['openai','OpenAI'],['gemini','Gemini'],['claude','Claude']].map(([id,label]) => <button key={id} className={provider === id ? 'active' : ''} onClick={() => setProvider(id)}>{label}</button>)}
+              <button className={provider === "auto" ? "active" : ""} onClick={() => setProvider("auto")}>✦ 자동</button>
+              {aiProviders.map((item) => <button key={item.id} className={provider === item.id ? "active" : ""} onClick={() => setProvider(item.id)}><img src={item.icon} alt="" />{item.name.split(" ").slice(-1)[0]}</button>)}
             </div>
             <div className="prompt-suggestions">
               <button onClick={() => setCoverPrompt("여백이 넉넉한 미니멀 에세이, 따뜻한 아이보리 종이와 작은 식물 드로잉")}>미니멀 에세이</button>
@@ -223,7 +266,8 @@ export default function Home() {
             <div className="ai-title"><div className="ai-orb">✦</div><div><b>페이지 AI</b><span>당신의 글쓰기 파트너</span></div><span className="online" /></div>
             <div className="ai-context"><span>현재 읽는 중</span><b>프롤로그 · 시작하는 마음</b></div>
             <div className="provider-picker compact" aria-label="글쓰기 AI 선택">
-              {[['auto','자동'],['openai','OpenAI'],['gemini','Gemini'],['claude','Claude']].map(([id,label]) => <button key={id} className={provider === id ? 'active' : ''} onClick={() => setProvider(id)}>{label}</button>)}
+              <button className={provider === "auto" ? "active" : ""} onClick={() => setProvider("auto")}>✦ 자동</button>
+              {aiProviders.map((item) => <button key={item.id} className={provider === item.id ? "active" : ""} onClick={() => setProvider(item.id)}><img src={item.icon} alt="" />{item.name.split(" ").slice(-1)[0]}</button>)}
             </div>
             <p className="ai-greeting">어떤 도움이 필요하세요? 문장을 다듬거나, 다음 내용을 함께 구상할 수 있어요.</p>
             <div className="quick-actions">
@@ -258,6 +302,29 @@ export default function Home() {
       )}
 
       {toast && <div className="toast">{toast}</div>}
+      {settingsOpen && (
+        <div className="settings-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSettingsOpen(false); }}>
+          <section className="settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+            <header className="settings-head">
+              <div><span className="eyebrow">AI CONNECTIONS</span><h2 id="settings-title">AI API 설정</h2><p>사용할 AI의 키를 연결하세요. 키는 서버에 저장되지 않고 현재 브라우저 세션에서만 사용됩니다.</p></div>
+              <button onClick={() => setSettingsOpen(false)} aria-label="설정 닫기">×</button>
+            </header>
+            <div className="settings-list">
+              {aiProviders.map((item) => {
+                const status = keyStatus[item.id];
+                return <article className="api-card" key={item.id} style={{ "--provider-color": item.color } as React.CSSProperties}>
+                  <div className="provider-identity"><div className="provider-icon"><img src={item.icon} alt={`${item.name} 아이콘`} /></div><div><h3>{item.name}</h3><span>{item.model}</span></div><i className={apiKeys[item.id] ? "connected" : ""}>{apiKeys[item.id] ? "키 입력됨" : "연결 안 됨"}</i></div>
+                  <label htmlFor={`${item.id}-key`}>API KEY</label>
+                  <div className="key-field"><input id={`${item.id}-key`} type="password" autoComplete="off" value={apiKeys[item.id]} onChange={(event) => { setApiKeys((value) => ({ ...value, [item.id]: event.target.value })); setKeyStatus((value) => ({ ...value, [item.id]: "idle" })); }} placeholder={item.id === "openai" ? "sk-proj-••••••••••••" : item.id === "gemini" ? "AIza••••••••••••" : "sk-ant-••••••••••••"} /><span>•••</span></div>
+                  <div className="key-feedback" data-status={status}>{status === "testing" ? "연결을 확인하고 있어요…" : status === "success" ? "✓ 연결에 성공했습니다" : status === "error" ? "키를 확인해 주세요" : "키는 암호화된 HTTPS 요청에만 사용됩니다."}</div>
+                  <div className="api-actions"><a href={item.link} target="_blank" rel="noreferrer">API 키 발급 ↗</a><button className="delete-key" onClick={() => deleteKey(item.id)} disabled={!apiKeys[item.id]}>삭제</button><button className="test-key" onClick={() => testKey(item.id)} disabled={status === "testing"}>{status === "testing" ? "테스트 중" : "테스트"}</button><button className="save-key" onClick={() => saveKey(item.id)} disabled={!apiKeys[item.id]}>저장</button></div>
+                </article>;
+              })}
+            </div>
+            <footer className="settings-footer"><span>🔒 API 키는 이 탭을 닫으면 자동으로 삭제됩니다.</span><button onClick={() => setSettingsOpen(false)}>설정 완료</button></footer>
+          </section>
+        </div>
+      )}
     </main>
   );
 }

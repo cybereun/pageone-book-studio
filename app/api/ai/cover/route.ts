@@ -33,10 +33,10 @@ async function geminiImage(apiKey: string, prompt: string) {
 }
 
 export async function POST(request: Request) {
-  const { prompt, title, subtitle, author, provider = "auto" } = await request.json();
-  const openaiKey = process.env.OPENAI_API_KEY;
-  const geminiKey = process.env.GEMINI_API_KEY;
-  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  const { prompt, title, subtitle, author, provider = "auto", apiKeys = {} } = await request.json();
+  const openaiKey = apiKeys.openai || process.env.OPENAI_API_KEY;
+  const geminiKey = apiKeys.gemini || process.env.GEMINI_API_KEY;
+  const anthropicKey = apiKeys.claude || process.env.ANTHROPIC_API_KEY;
   let coverPrompt = `세련된 한국어 단행본 앞표지. 장르와 분위기: ${prompt}. 제목은 "${title}", 부제는 "${subtitle}", 저자명은 "${author}". 제목이 선명하게 읽히고 인쇄 가능한 평면 표지 디자인. 목업, 책등, 손, 워터마크 없이 앞표지만.`;
 
   if (provider === "claude" && anthropicKey) coverPrompt = await claudeArtDirection(anthropicKey, coverPrompt);
