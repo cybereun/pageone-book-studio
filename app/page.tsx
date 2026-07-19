@@ -205,7 +205,7 @@ export default function Home() {
 
   function loadImage(source: string) {
     return new Promise<HTMLImageElement>((resolve, reject) => {
-      const image = new Image();
+      const image = new window.Image();
       image.onload = () => resolve(image);
       image.onerror = reject;
       image.src = source;
@@ -450,7 +450,7 @@ export default function Home() {
     const reader = new FileReader();
     reader.onload = () => {
       const originalDataUrl = String(reader.result);
-      const image = new Image();
+      const image = new window.Image();
       image.onload = () => {
         const validation = validateImportedImage({ width: image.naturalWidth, height: image.naturalHeight, targetWidth: outputPixels.width, targetHeight: outputPixels.height });
         setCoverImage(originalDataUrl);

@@ -41,6 +41,8 @@ test("cover controls expose real editing and export actions", async () => {
   assert.match(page, /className="cover-background-image"/);
   assert.match(page, /width: `\$\{previewSize\.width\}px`/);
   assert.match(page, /height: `\$\{previewSize\.height\}px`/);
+  assert.doesNotMatch(page, /new Image\(\)/);
+  assert.equal((page.match(/new window\.Image\(\)/g) || []).length, 2);
   assert.doesNotMatch(page, /normalizeCoverImage/);
   assert.match(css, /editor-popover/);
   assert.match(css, /custom-color-grid/);
