@@ -38,6 +38,19 @@ test("validates ratio and resolution independently", async () => {
   assert.deepEqual(validateImportedImage({ width: 1200, height: 1200, targetWidth: 3651, targetHeight: 2551 }), { ratioOk: false, resolutionOk: false });
 });
 
+test("accepts Canva image downloads even when the browser omits their MIME type", async () => {
+  const { isSupportedCoverImageFile } = await import(moduleUrl.href);
+  assert.equal(isSupportedCoverImageFile({ name: "canva-cover.PNG", type: "" }), true);
+  assert.equal(isSupportedCoverImageFile({ name: "canva-cover.jpg", type: "application/octet-stream" }), true);
+  assert.equal(isSupportedCoverImageFile({ name: "cover.pdf", type: "application/pdf" }), false);
+});
+
+test("places an imported image without stretching it", async () => {
+  const { calculateCoverImagePlacement } = await import(moduleUrl.href);
+  const placement = calculateCoverImagePlacement({ sourceWidth: 2000, sourceHeight: 1000, targetWidth: 1000, targetHeight: 1000, scale: 1, positionX: 50, positionY: 50 });
+  assert.deepEqual(placement, { x: -500, y: 0, width: 2000, height: 1000 });
+});
+
 test("builds a one-page PDF with an exact media box", async () => {
   const { buildSinglePageJpegPdf } = await import(moduleUrl.href);
   const pdf = buildSinglePageJpegPdf(new Uint8Array([255, 216, 255, 217]), { pixelWidth: 10, pixelHeight: 20, pageWidth: 100, pageHeight: 200 });

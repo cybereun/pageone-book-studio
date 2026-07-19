@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
-import { buildSinglePageJpegPdf, calculateCoverSpec, clampZoom, moveCustomTextPosition, removeCustomTextById, validateImportedImage } from "./lib/cover-spec.mjs";
+import { buildSinglePageJpegPdf, calculateCoverImagePlacement, calculateCoverSpec, clampZoom, isSupportedCoverImageFile, moveCustomTextPosition, removeCustomTextById, validateImportedImage } from "./lib/cover-spec.mjs";
 
 type Step = "cover" | "edit" | "publish";
 type Provider = "openai" | "gemini" | "claude";
@@ -303,10 +303,8 @@ export default function Home() {
     context.fillRect(0, 0, canvas.width, canvas.height);
     if (coverImage) {
       const image = await loadImage(coverImage);
-      const scale = backgroundScale / 100;
-      const width = canvas.width * scale;
-      const height = canvas.height * scale;
-      context.drawImage(image, (canvas.width - width) * backgroundX / 100, (canvas.height - height) * backgroundY / 100, width, height);
+      const placement = calculateCoverImagePlacement({ sourceWidth: image.naturalWidth, sourceHeight: image.naturalHeight, targetWidth: canvas.width, targetHeight: canvas.height, scale: backgroundScale / 100, positionX: backgroundX, positionY: backgroundY });
+      context.drawImage(image, placement.x, placement.y, placement.width, placement.height);
       const gradient = context.createLinearGradient(0, 0, canvas.width, 0);
       gradient.addColorStop(0, "rgba(10,18,15,.28)");
       gradient.addColorStop(.55, "rgba(10,18,15,.08)");
@@ -460,28 +458,44 @@ export default function Home() {
 
   function importCanvaCover(file?: File, source: CoverSource = "canva") {
     if (!file) return;
-    if (!/^image\/(png|jpeg|webp)$/.test(file.type)) {
+    if (!isSupportedCoverImageFile(file)) {
       setCanvaFileStatus("PNG, JPG 또는 WEBP 파일만 적용할 수 있어요.");
       return;
     }
+    setCanvaFileName(file.name);
+    setCanvaFileStatus("이미지를 불러오는 중이에요…");
     const reader = new FileReader();
     reader.onload = () => {
+      const originalDataUrl = String(reader.result);
       const image = new Image();
       image.onload = async () => {
         const validation = validateImportedImage({ width: image.naturalWidth, height: image.naturalHeight, targetWidth: outputPixels.width, targetHeight: outputPixels.height });
-        const normalized = await normalizeCoverImage(String(reader.result));
-        setCoverImage(normalized.dataUrl);
+        setCoverImage(originalDataUrl);
         setCoverSource(source);
-        setCanvaFileName(file.name);
-        setCanvaFileStatus(validation.ratioOk && validation.resolutionOk
-          ? `규격 확인 완료 · ${image.naturalWidth.toLocaleString()}×${image.naturalHeight.toLocaleString()}px`
-          : `자동 맞춤 완료 · ${!validation.ratioOk ? "비율을 중앙 기준으로 잘랐고 " : ""}${!validation.resolutionOk ? "인쇄 권장 해상도보다 낮아요" : "300DPI 규격입니다"}`);
+        setCanvaFileStatus("이미지를 표지에 적용했어요. 인쇄 규격으로 맞추는 중이에요…");
         setToast(source === "canva" ? "Canva 표지를 정확한 전개도 규격에 적용했어요." : "배경 이미지를 정확한 전개도 규격에 적용했어요.");
         setTimeout(() => setToast(""), 2600);
+        try {
+          const normalized = await normalizeCoverImage(originalDataUrl);
+          setCoverImage(normalized.dataUrl);
+          setCanvaFileStatus(validation.ratioOk && validation.resolutionOk
+            ? `규격 확인 완료 · ${image.naturalWidth.toLocaleString()}×${image.naturalHeight.toLocaleString()}px`
+            : `자동 맞춤 완료 · ${!validation.ratioOk ? "비율을 중앙 기준으로 잘랐고 " : ""}${!validation.resolutionOk ? "인쇄 권장 해상도보다 낮아요" : "300DPI 규격입니다"}`);
+        } catch {
+          setCanvaFileStatus(`원본 이미지 적용 완료 · ${image.naturalWidth.toLocaleString()}×${image.naturalHeight.toLocaleString()}px`);
+        }
       };
-      image.src = String(reader.result);
+      image.onerror = () => setCanvaFileStatus("이미지를 읽지 못했어요. 다른 PNG 또는 JPG 파일을 선택해 주세요.");
+      image.src = originalDataUrl;
     };
+    reader.onerror = () => setCanvaFileStatus("파일을 불러오지 못했어요. 다시 선택해 주세요.");
     reader.readAsDataURL(file);
+  }
+
+  function handleCoverFileChange(event: React.ChangeEvent<HTMLInputElement>, source: CoverSource = "canva") {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    importCanvaCover(file, source);
   }
 
   async function askAi(action?: string) {
@@ -634,10 +648,10 @@ export default function Home() {
               </div>
               <div className="canva-step"><span>3</span><div><b>완성 표지 가져오기</b><small>Canva에서 고해상도 PNG로 내려받아 주세요</small></div></div>
               <label className={canvaFileName ? "canva-upload has-file" : "canva-upload"} htmlFor="canva-cover-file">
-                <input id="canva-cover-file" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => importCanvaCover(event.target.files?.[0])} />
+                <input id="canva-cover-file" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => handleCoverFileChange(event)} />
                 <span>{canvaFileName ? "✓" : "↑"}</span><b>{canvaFileName || "Canva 표지 파일 선택"}</b><small>PNG · JPG · WEBP</small>
               </label>
-              {canvaFileStatus && <p className={canvaFileStatus.includes("완료") ? "canva-status success" : "canva-status"}>{canvaFileStatus}</p>}
+              {canvaFileStatus && <p aria-live="polite" className={canvaFileStatus.includes("완료") || canvaFileStatus.includes("적용했어요") ? "canva-status success" : "canva-status"}>{canvaFileStatus}</p>}
             </section>}
           </aside>
 
@@ -663,7 +677,7 @@ export default function Home() {
               {activeTool && <div className="editor-popover">
                 <div className="editor-popover-head"><b>{activeTool === "text" ? "텍스트 편집" : activeTool === "image" ? "배경 이미지" : activeTool === "color" ? "표지 색상" : "위치와 정렬"}</b><button aria-label="편집 도구 닫기" onClick={() => setActiveTool(null)}>×</button></div>
                 {activeTool === "text" && <>{selectedCustomTextId === null ? <label>편집 대상<select value={selectedText} onChange={(event) => selectBuiltInText(event.target.value as TextTarget)}><option value="title">앞표지 제목</option><option value="subtitle">부제</option><option value="author">저자명</option><option value="spineTitle">책등 제목</option><option value="spineAuthor">책등 작가명</option></select></label> : <div className="custom-text-selected"><span>추가 텍스트 편집 중</span><button onClick={() => setSelectedCustomTextId(null)}>기본 텍스트 선택</button></div>}<label>글꼴<select value={activeTextStyle.fontFamily} onChange={(event) => patchTextStyle({ fontFamily: event.target.value })}><option>Noto Serif KR</option><option>Noto Sans KR</option><option>Georgia</option><option>Arial</option></select></label><label>크기<input type="range" min="5" max="56" value={activeTextStyle.fontSize} onChange={(event) => patchTextStyle({ fontSize: Number(event.target.value) })} /><output>{activeTextStyle.fontSize}px</output></label><label>글자색<input type="color" value={activeTextStyle.color} onChange={(event) => patchTextStyle({ color: event.target.value })} /></label>{selectedCustomTextId !== null && <button className="delete-text-button" onClick={() => deleteCustomText(selectedCustomTextId)}>추가 텍스트 삭제</button>}<button className="add-text-button" onClick={addCustomText}>＋ 텍스트 추가</button></>}
-                {activeTool === "image" && <><label className="image-replace">이미지 교체<input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => importCanvaCover(event.target.files?.[0], "ai")} /></label><label>확대<input type="range" min="100" max="200" value={backgroundScale} onChange={(event) => setBackgroundScale(Number(event.target.value))} /><output>{backgroundScale}%</output></label><label>가로 위치<input type="range" min="0" max="100" value={backgroundX} onChange={(event) => setBackgroundX(Number(event.target.value))} /></label><label>세로 위치<input type="range" min="0" max="100" value={backgroundY} onChange={(event) => setBackgroundY(Number(event.target.value))} /></label></>}
+                {activeTool === "image" && <><label className="image-replace">이미지 교체<input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => handleCoverFileChange(event, "ai")} /></label>{canvaFileStatus && <small className="image-import-status" aria-live="polite">{canvaFileStatus}</small>}<label>확대<input type="range" min="100" max="200" value={backgroundScale} onChange={(event) => setBackgroundScale(Number(event.target.value))} /><output>{backgroundScale}%</output></label><label>가로 위치<input type="range" min="0" max="100" value={backgroundX} onChange={(event) => setBackgroundX(Number(event.target.value))} /></label><label>세로 위치<input type="range" min="0" max="100" value={backgroundY} onChange={(event) => setBackgroundY(Number(event.target.value))} /></label></>}
                 {activeTool === "color" && <><label>배경색<input type="color" value={backgroundColor} onChange={(event) => setBackgroundColor(event.target.value)} /></label><div className="color-swatches">{["#d95b42", "#182a3b", "#315447", "#ede5d4", "#2a2028"].map((color) => <button key={color} className={backgroundColor === color ? "active" : ""} aria-label={`${color} 색상`} style={{ background: color }} onClick={() => setBackgroundColor(color)} />)}</div><button type="button" className="custom-color-trigger" aria-expanded={customColorsOpen} onClick={() => setCustomColorsOpen((open) => !open)}><span>사용자 색상</span><b>{customColorsOpen ? "접기" : "다양한 색상 보기"}</b></button>{customColorsOpen && <div className="custom-color-panel" role="group" aria-label="사용자 색상 선택"><div className="custom-color-grid">{coverColorPalette.map((color) => <button type="button" key={color} className={backgroundColor === color ? "active" : ""} aria-label={`${color} 사용자 색상`} title={color.toUpperCase()} style={{ background: color }} onClick={() => setBackgroundColor(color)} />)}</div><label className="custom-color-picker">직접 선택<input type="color" value={backgroundColor} onChange={(event) => setBackgroundColor(event.target.value)} /><output>{backgroundColor.toUpperCase()}</output></label></div>}</>}
                 {activeTool === "align" && <><div className="align-buttons"><button onClick={() => patchTextStyle({ align: "left" })}>왼쪽</button><button onClick={() => patchTextStyle({ align: "center" })}>가운데</button><button onClick={() => patchTextStyle({ align: "right" })}>오른쪽</button></div><div className="nudge-buttons"><button aria-label="위로 이동" onClick={() => nudgeSelectedText(0, -2)}>↑</button><button aria-label="왼쪽으로 이동" onClick={() => nudgeSelectedText(-2, 0)}>←</button><button aria-label="위치 초기화" onClick={resetSelectedTextPosition}>•</button><button aria-label="오른쪽으로 이동" onClick={() => nudgeSelectedText(2, 0)}>→</button><button aria-label="아래로 이동" onClick={() => nudgeSelectedText(0, 2)}>↓</button></div></>}
               </div>}

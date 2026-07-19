@@ -33,6 +33,24 @@ export function validateImportedImage({ width, height, targetWidth, targetHeight
   };
 }
 
+export function isSupportedCoverImageFile(file) {
+  const mimeType = String(file?.type || "").toLowerCase();
+  const fileName = String(file?.name || "").toLowerCase();
+  return /^image\/(png|jpe?g|webp)$/.test(mimeType) || /\.(png|jpe?g|webp)$/.test(fileName);
+}
+
+export function calculateCoverImagePlacement({ sourceWidth, sourceHeight, targetWidth, targetHeight, scale = 1, positionX = 50, positionY = 50 }) {
+  const coverScale = Math.max(targetWidth / sourceWidth, targetHeight / sourceHeight) * Math.max(1, Number(scale) || 1);
+  const width = sourceWidth * coverScale;
+  const height = sourceHeight * coverScale;
+  return {
+    x: (targetWidth - width) * Number(positionX) / 100,
+    y: (targetHeight - height) * Number(positionY) / 100,
+    width,
+    height,
+  };
+}
+
 export function buildSinglePageJpegPdf(jpegBytes, { pixelWidth, pixelHeight, pageWidth, pageHeight }) {
   const encoder = new TextEncoder();
   const chunks = [];

@@ -36,6 +36,8 @@ test("cover controls expose real editing and export actions", async () => {
   assert.match(page, /사용자 색상/);
   assert.match(page, /aria-label="사용자 색상 선택"/);
   assert.match(page, /custom-color-panel/);
+  assert.match(page, /currentTarget\.value = ""/);
+  assert.match(page, /aria-live="polite"/);
   assert.match(css, /editor-popover/);
   assert.match(css, /custom-color-grid/);
   assert.match(coverRoute, /gpt-image-1/);
