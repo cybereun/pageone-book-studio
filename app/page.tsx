@@ -88,7 +88,10 @@ const initialManuscript: ManuscriptChapter[] = [
   { id: 4, kicker: "에필로그", title: "다시, 첫 페이지", pages: [{ id: 401, content: "마지막 페이지는 다음 기록을 위한 첫 페이지이기도 하다." }] },
 ];
 
-const manuscriptFonts = ["Noto Serif KR", "Noto Sans KR", "Pretendard", "Nanum Myeongjo", "Nanum Gothic"];
+const manuscriptFonts = [
+  "Noto Serif KR", "Noto Sans KR", "Pretendard", "Nanum Myeongjo", "Nanum Gothic",
+  "Bookk Gothic Light", "Bookk Gothic Bold", "Bookk Myungjo Light", "Bookk Myungjo Bold",
+];
 const manuscriptFontSizes = [10, 12, 14, 18, 24, 32, 48];
 
 export default function Home() {

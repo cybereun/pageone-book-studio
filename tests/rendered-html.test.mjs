@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
@@ -17,6 +18,21 @@ test("server-renders the PAGEONE authoring studio", async () => {
   assert.match(html, /표지 디자인/);
   assert.match(html, /본문 편집/);
   assert.match(html, /검토 · 출판/);
+});
+
+test("bundles the four BOOKK fonts in the manuscript font picker", async () => {
+  const [page, css] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+  for (const font of ["Bookk Gothic Light", "Bookk Gothic Bold", "Bookk Myungjo Light", "Bookk Myungjo Bold"]) {
+    assert.match(page, new RegExp(font));
+    assert.match(css, new RegExp(`font-family:\\s*"${font}"`));
+  }
+  for (const file of ["BookkGothic_Light.ttf", "BookkGothic_Bold.ttf", "BookkMyungjo_Light.ttf", "BookkMyungjo_Bold.ttf"]) {
+    assert.equal(existsSync(new URL(`../public/fonts/${file}`, import.meta.url)), true);
+    assert.match(css, new RegExp(`/fonts/${file.replace(".", "\\.")}`));
+  }
 });
 
 test("cover controls expose real editing and export actions", async () => {

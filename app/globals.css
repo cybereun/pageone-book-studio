@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+@font-face{font-family:"Bookk Gothic Light";src:url("/fonts/BookkGothic_Light.ttf") format("truetype");font-style:normal;font-weight:400;font-display:swap}
+@font-face{font-family:"Bookk Gothic Bold";src:url("/fonts/BookkGothic_Bold.ttf") format("truetype");font-style:normal;font-weight:400;font-display:swap}
+@font-face{font-family:"Bookk Myungjo Light";src:url("/fonts/BookkMyungjo_Light.ttf") format("truetype");font-style:normal;font-weight:400;font-display:swap}
+@font-face{font-family:"Bookk Myungjo Bold";src:url("/fonts/BookkMyungjo_Bold.ttf") format("truetype");font-style:normal;font-weight:400;font-display:swap}
+
 :root{--paper:#f4f0e8;--cream:#fbf9f4;--ink:#202724;--muted:#7a7b73;--line:#ddd8ce;--coral:#e4583e;--coral-dark:#c9432d;--sage:#7d8e7b;--panel:#fffdf8}
 *{box-sizing:border-box}
 html,body{margin:0;min-height:100%;background:var(--paper);color:var(--ink);font-family:"Pretendard","Noto Sans KR","Apple SD Gothic Neo",sans-serif}
