@@ -28,6 +28,7 @@ export default function Home() {
   const [saved, setSaved] = useState(true);
   const [toast, setToast] = useState("");
   const [format, setFormat] = useState("A5");
+  const [provider, setProvider] = useState("auto");
 
   useEffect(() => {
     const cached = localStorage.getItem("pageone-draft");
@@ -61,11 +62,11 @@ export default function Home() {
       const res = await fetch("/api/ai/cover", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: coverPrompt, title, subtitle, author }),
+        body: JSON.stringify({ prompt: coverPrompt, title, subtitle, author, provider }),
       });
       const data = await res.json();
       if (data.image) setCoverImage(data.image);
-      setToast(data.demo ? "AI API 키가 없어 편집 가능한 디자인 시안을 만들었어요." : "AI가 새 표지를 완성했어요.");
+      setToast(data.demo ? "이미지 생성 키가 없어 편집 가능한 디자인 시안을 만들었어요." : `${data.providerLabel || "AI"}가 새 표지를 완성했어요.`);
     } catch {
       setToast("표지 생성이 잠시 지연되고 있어요. 다시 시도해 주세요.");
     } finally {
@@ -81,7 +82,7 @@ export default function Home() {
       const res = await fetch("/api/ai/write", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ request, text: body, title }),
+        body: JSON.stringify({ request, text: body, title, provider }),
       });
       const data = await res.json();
       setAiReply(data.text);
@@ -143,6 +144,9 @@ export default function Home() {
             <label>부제<input value={subtitle} onChange={(e) => setSubtitle(e.target.value)} /></label>
             <label>저자명<input value={author} onChange={(e) => setAuthor(e.target.value)} /></label>
             <label>어떤 표지를 원하세요?<textarea rows={4} value={coverPrompt} onChange={(e) => setCoverPrompt(e.target.value)} /></label>
+            <div className="provider-picker" aria-label="표지 AI 선택">
+              {[['auto','자동'],['openai','OpenAI'],['gemini','Gemini'],['claude','Claude']].map(([id,label]) => <button key={id} className={provider === id ? 'active' : ''} onClick={() => setProvider(id)}>{label}</button>)}
+            </div>
             <div className="prompt-suggestions">
               <button onClick={() => setCoverPrompt("여백이 넉넉한 미니멀 에세이, 따뜻한 아이보리 종이와 작은 식물 드로잉")}>미니멀 에세이</button>
               <button onClick={() => setCoverPrompt("짙은 남색 밤하늘과 금빛 별, 신비로운 문학 소설 표지")}>문학 소설</button>
@@ -218,6 +222,9 @@ export default function Home() {
           <aside className="ai-panel">
             <div className="ai-title"><div className="ai-orb">✦</div><div><b>페이지 AI</b><span>당신의 글쓰기 파트너</span></div><span className="online" /></div>
             <div className="ai-context"><span>현재 읽는 중</span><b>프롤로그 · 시작하는 마음</b></div>
+            <div className="provider-picker compact" aria-label="글쓰기 AI 선택">
+              {[['auto','자동'],['openai','OpenAI'],['gemini','Gemini'],['claude','Claude']].map(([id,label]) => <button key={id} className={provider === id ? 'active' : ''} onClick={() => setProvider(id)}>{label}</button>)}
+            </div>
             <p className="ai-greeting">어떤 도움이 필요하세요? 문장을 다듬거나, 다음 내용을 함께 구상할 수 있어요.</p>
             <div className="quick-actions">
               <button onClick={() => askAi("현재 원고의 문체와 사실을 유지하며 더 자연스럽고 몰입감 있게 다듬어줘")}>✦ 문장 다듬기</button>
