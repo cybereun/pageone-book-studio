@@ -582,7 +582,7 @@ export default function Home() {
 
       {step === "cover" && (
         <section className="workspace cover-workspace">
-          <aside className="control-panel">
+          <aside className="control-panel cover-controls">
             <div className="panel-heading">
               <span className="eyebrow">STEP 01</span>
               <h1>책의 첫인상을<br />만들어 볼까요?</h1>
@@ -653,7 +653,7 @@ export default function Home() {
 
           <div className="canvas-zone">
             <div className="canvas-head"><span>전체 표지 전개도</span>{coverSource !== "starter" && <em className={`cover-source ${coverSource}`}>{coverSource === "canva" ? "Canva 적용됨" : "AI 적용됨"}</em>}<div className="spread-meta"><b>{trim.label}</b><span>{pageCount}P</span><span>책등 {spineWidth.toFixed(2)}mm</span></div><button className={showGuides ? "guide-toggle active" : "guide-toggle"} onClick={() => setShowGuides((value) => !value)}>가이드 {showGuides ? "ON" : "OFF"}</button><div className="zoom"><button aria-label="축소" onClick={() => setZoom((value) => clampZoom(value - 10))}>−</button><output>{zoom}%</output><button aria-label="확대" onClick={() => setZoom((value) => clampZoom(value + 10))}>＋</button></div></div>
-            <div className="cover-stage">
+            <div className="cover-stage compact-cover-stage" style={{ "--stage-content-height": `${previewSize.height}px` } as React.CSSProperties}>
               <div className="artboard-shell" style={{ width: `${previewSize.width}px` }}>
               <div className="ruler ruler-top"><span>0</span><span>{Math.round(spreadWidth / 4)}</span><span>{Math.round(spreadWidth / 2)}</span><span>{Math.round(spreadWidth * 0.75)}</span><span>{Math.round(spreadWidth)}mm</span></div>
               <div className={`cover-spread ${coverImage ? "has-image" : ""}`} style={{ width: `${previewSize.width}px`, height: `${previewSize.height}px`, gridTemplateColumns: spreadColumns, backgroundColor } as React.CSSProperties}>

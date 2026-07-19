@@ -47,6 +47,9 @@ test("cover controls expose real editing and export actions", async () => {
   assert.match(page, /deleteStoredCoverImage/);
   assert.equal((page.match(/첨부 이미지 삭제/g) || []).length, 2);
   assert.match(page, /className="artboard-controls"/);
+  assert.match(page, /className="control-panel cover-controls"/);
+  assert.match(page, /className="cover-stage compact-cover-stage"/);
+  assert.match(page, /"--stage-content-height": `\$\{previewSize\.height\}px`/);
   assert.match(css, /editor-popover/);
   assert.match(css, /custom-color-grid/);
   assert.match(css, /\.cover-stage\{[^}]*overflow:auto/);
@@ -56,6 +59,8 @@ test("cover controls expose real editing and export actions", async () => {
   assert.match(css, /\.artboard-shell \.cover-spread\{[^}]*max-height:none/);
   assert.match(css, /\.artboard-shell \.artboard-controls\{[^}]*left:calc\(100% \+ 14px\)/);
   assert.match(css, /\.artboard-controls \.cover-tools\{[^}]*position:static/);
+  assert.match(css, /\.cover-controls\{[^}]*height:calc\(100vh - 124px\)[^}]*overflow-y:auto[^}]*scrollbar-gutter:stable/);
+  assert.match(css, /\.compact-cover-stage\{[^}]*height:min\(calc\(100vh - 208px\),calc\(var\(--stage-content-height\) \+ 76px\)\)/);
   assert.match(coverRoute, /gpt-image-1/);
   assert.match(coverRoute, /gemini-3\.1-flash-image/);
   assert.match(coverRoute, /claude-sonnet-4-20250514/);
