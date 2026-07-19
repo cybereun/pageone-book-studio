@@ -47,3 +47,14 @@ test("builds a one-page PDF with an exact media box", async () => {
   assert.match(text, /\/Subtype \/Image/);
   assert.match(text, /%%EOF$/);
 });
+
+test("moves added text while keeping it inside the front cover", async () => {
+  const { moveCustomTextPosition } = await import(moduleUrl.href);
+  assert.deepEqual(moveCustomTextPosition({ x: 50, y: 35 }, 10, -5), { x: 60, y: 30 });
+  assert.deepEqual(moveCustomTextPosition({ x: 98, y: 2 }, 10, -10), { x: 95, y: 5 });
+});
+
+test("deletes only the requested added text", async () => {
+  const { removeCustomTextById } = await import(moduleUrl.href);
+  assert.deepEqual(removeCustomTextById([{ id: 1, text: "A" }, { id: 2, text: "B" }], 1), [{ id: 2, text: "B" }]);
+});

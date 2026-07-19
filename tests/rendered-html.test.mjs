@@ -30,6 +30,9 @@ test("cover controls expose real editing and export actions", async () => {
   assert.match(page, /텍스트 추가/);
   assert.match(page, /300 DPI PNG/);
   assert.match(page, /인쇄용 PDF/);
+  assert.match(page, /aria-label="추가 텍스트 이동"/);
+  assert.match(page, /aria-label="추가 텍스트 삭제"/);
+  assert.match(page, /backgroundSize: `\$\{backgroundScale\}% \$\{backgroundScale\}%`/);
   assert.match(css, /editor-popover/);
   assert.match(coverRoute, /gpt-image-1/);
   assert.match(coverRoute, /gemini-3\.1-flash-image/);

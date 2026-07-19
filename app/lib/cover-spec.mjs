@@ -66,3 +66,14 @@ export function buildSinglePageJpegPdf(jpegBytes, { pixelWidth, pixelHeight, pag
   for (const chunk of chunks) { output.set(chunk, cursor); cursor += chunk.length; }
   return output;
 }
+
+export function moveCustomTextPosition(position, deltaX, deltaY) {
+  return {
+    x: Math.min(95, Math.max(5, Number(position.x) + Number(deltaX))),
+    y: Math.min(95, Math.max(5, Number(position.y) + Number(deltaY))),
+  };
+}
+
+export function removeCustomTextById(items, id) {
+  return items.filter((item) => item.id !== id);
+}

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
-import { buildSinglePageJpegPdf, calculateCoverSpec, clampZoom, validateImportedImage } from "./lib/cover-spec.mjs";
+import { buildSinglePageJpegPdf, calculateCoverSpec, clampZoom, moveCustomTextPosition, removeCustomTextById, validateImportedImage } from "./lib/cover-spec.mjs";
 
 type Step = "cover" | "edit" | "publish";
 type Provider = "openai" | "gemini" | "claude";
@@ -101,6 +101,7 @@ export default function Home() {
   const [selectedText, setSelectedText] = useState<TextTarget>("title");
   const [textStyles, setTextStyles] = useState<Record<TextTarget, TextStyle>>(defaultTextStyles);
   const [customTexts, setCustomTexts] = useState<CustomText[]>([]);
+  const [selectedCustomTextId, setSelectedCustomTextId] = useState<number | null>(null);
   const [backgroundColor, setBackgroundColor] = useState("#d95b42");
   const [backgroundScale, setBackgroundScale] = useState(100);
   const [backgroundX, setBackgroundX] = useState(50);
@@ -217,11 +218,67 @@ export default function Home() {
   }
 
   function patchTextStyle(patch: Partial<TextStyle>) {
+    if (selectedCustomTextId !== null) {
+      setCustomTexts((items) => items.map((item) => item.id === selectedCustomTextId ? { ...item, ...patch } : item));
+      return;
+    }
     setTextStyles((styles) => ({ ...styles, [selectedText]: { ...styles[selectedText], ...patch } }));
   }
 
   function addCustomText() {
-    setCustomTexts((items) => [...items, { id: Date.now(), text: "새 문구", x: 50, y: 35, fontFamily: "Noto Sans KR", fontSize: 16, color: "#ffffff", align: "center", offsetX: 0, offsetY: 0 }]);
+    const id = Date.now();
+    setCustomTexts((items) => [...items, { id, text: "새 문구", x: 50, y: 35, fontFamily: "Noto Sans KR", fontSize: 16, color: "#ffffff", align: "center", offsetX: 0, offsetY: 0 }]);
+    setSelectedCustomTextId(id);
+    setActiveTool("text");
+  }
+
+  function moveCustomText(id: number, deltaX: number, deltaY: number) {
+    setCustomTexts((items) => items.map((item) => item.id === id ? { ...item, ...moveCustomTextPosition(item, deltaX, deltaY) } : item));
+  }
+
+  function deleteCustomText(id: number) {
+    setCustomTexts((items) => removeCustomTextById(items, id));
+    setSelectedCustomTextId((selected) => selected === id ? null : selected);
+  }
+
+  function beginCustomTextDrag(event: React.PointerEvent<HTMLButtonElement>, id: number) {
+    event.preventDefault();
+    event.stopPropagation();
+    const front = event.currentTarget.closest(".spread-front") as HTMLElement | null;
+    const item = customTexts.find((text) => text.id === id);
+    if (!front || !item) return;
+    setSelectedCustomTextId(id);
+    const bounds = front.getBoundingClientRect();
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const move = (pointer: PointerEvent) => {
+      const deltaX = ((pointer.clientX - startX) / bounds.width) * 100;
+      const deltaY = ((pointer.clientY - startY) / bounds.height) * 100;
+      const position = moveCustomTextPosition(item, deltaX, deltaY);
+      setCustomTexts((items) => items.map((text) => text.id === id ? { ...text, ...position } : text));
+    };
+    const stop = () => {
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerup", stop);
+    };
+    document.addEventListener("pointermove", move);
+    document.addEventListener("pointerup", stop, { once: true });
+  }
+
+  function nudgeSelectedText(deltaX: number, deltaY: number) {
+    if (selectedCustomTextId !== null) moveCustomText(selectedCustomTextId, deltaX, deltaY);
+    else patchTextStyle({ offsetX: textStyles[selectedText].offsetX + deltaX, offsetY: textStyles[selectedText].offsetY + deltaY });
+  }
+
+  function resetSelectedTextPosition() {
+    if (selectedCustomTextId !== null) {
+      setCustomTexts((items) => items.map((item) => item.id === selectedCustomTextId ? { ...item, x: 50, y: 35 } : item));
+    } else patchTextStyle({ offsetX: 0, offsetY: 0 });
+  }
+
+  function selectBuiltInText(target: TextTarget) {
+    setSelectedText(target);
+    setSelectedCustomTextId(null);
     setActiveTool("text");
   }
 
@@ -473,6 +530,8 @@ export default function Home() {
     }
   }
 
+  const activeTextStyle = customTexts.find((item) => item.id === selectedCustomTextId) ?? textStyles[selectedText];
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -576,13 +635,13 @@ export default function Home() {
             <div className="cover-stage">
               <div className="artboard-shell" style={{ width: `${zoom}%` }}>
               <div className="ruler ruler-top"><span>0</span><span>{Math.round(spreadWidth / 4)}</span><span>{Math.round(spreadWidth / 2)}</span><span>{Math.round(spreadWidth * 0.75)}</span><span>{Math.round(spreadWidth)}mm</span></div>
-              <div className={`cover-spread ${coverImage ? "has-image" : ""}`} style={{ aspectRatio: `${spreadWidth} / ${spreadHeight}`, gridTemplateColumns: spreadColumns, backgroundColor, backgroundSize: `${backgroundScale}%`, backgroundPosition: `${backgroundX}% ${backgroundY}%`, ...(coverImage ? { backgroundImage: `url(${coverImage})` } : {}) } as React.CSSProperties}>
+              <div className={`cover-spread ${coverImage ? "has-image" : ""}`} style={{ aspectRatio: `${spreadWidth} / ${spreadHeight}`, gridTemplateColumns: spreadColumns, backgroundColor, backgroundSize: `${backgroundScale}% ${backgroundScale}%`, backgroundPosition: `${backgroundX}% ${backgroundY}%`, ...(coverImage ? { backgroundImage: `url(${coverImage})` } : {}) } as React.CSSProperties}>
                 <div className="cover-grain" />
                 {showGuides && <><div className="bleed-guide" /><div className="safe-guide" /></>}
                 {hasFlaps && <section className="spread-flap flap-left"><small>날개 {flapWidth}mm</small><p>저자 소개와 책의 이야기를 담는 공간</p></section>}
                 <section className="spread-back"><span className="panel-label">뒤표지</span><p>어떤 시작은 아주 조용합니다.<br />이 책은 매일의 작은 장면을 천천히 기록하는 방법을 이야기합니다.</p><i>PAGEONE · 2026</i></section>
-                <section className="spread-spine"><span className={selectedText === "spineTitle" ? "spine-title selected-text" : "spine-title"} onClick={() => { setSelectedText("spineTitle"); setActiveTool("text"); }} style={{ fontFamily: textStyles.spineTitle.fontFamily, fontSize: textStyles.spineTitle.fontSize, color: textStyles.spineTitle.color, transform: `translate(${textStyles.spineTitle.offsetX}px,${textStyles.spineTitle.offsetY}px)` }}>{title}</span>{showSpineAuthor && <small className={selectedText === "spineAuthor" ? "spine-author selected-text" : "spine-author"} onClick={() => { setSelectedText("spineAuthor"); setActiveTool("text"); }} style={{ fontFamily: textStyles.spineAuthor.fontFamily, fontSize: textStyles.spineAuthor.fontSize, color: textStyles.spineAuthor.color, transform: `translate(${textStyles.spineAuthor.offsetX}px,${textStyles.spineAuthor.offsetY}px)` }}>{author}</small>}</section>
-                <section className="spread-front"><span className="panel-label">앞표지</span><div className="cover-copy"><span className="cover-symbol">✦</span><h2 className={selectedText === "title" ? "selected-text" : ""} onClick={() => { setSelectedText("title"); setActiveTool("text"); }} style={{ fontFamily: textStyles.title.fontFamily, fontSize: textStyles.title.fontSize, color: textStyles.title.color, textAlign: textStyles.title.align, transform: `translate(${textStyles.title.offsetX}px,${textStyles.title.offsetY}px)` }}>{title}</h2><p className={selectedText === "subtitle" ? "selected-text" : ""} onClick={() => { setSelectedText("subtitle"); setActiveTool("text"); }} style={{ fontFamily: textStyles.subtitle.fontFamily, fontSize: textStyles.subtitle.fontSize, color: textStyles.subtitle.color, textAlign: textStyles.subtitle.align, transform: `translate(${textStyles.subtitle.offsetX}px,${textStyles.subtitle.offsetY}px)` }}>{subtitle}</p></div><div className={selectedText === "author" ? "cover-author selected-text" : "cover-author"} onClick={() => { setSelectedText("author"); setActiveTool("text"); }} style={{ fontFamily: textStyles.author.fontFamily, fontSize: textStyles.author.fontSize, color: textStyles.author.color, textAlign: textStyles.author.align, transform: `translate(${textStyles.author.offsetX}px,${textStyles.author.offsetY}px)` }}>{author} 지음</div>{customTexts.map((item) => <input key={item.id} className="custom-cover-text" aria-label="추가 문구" value={item.text} onChange={(event) => setCustomTexts((items) => items.map((text) => text.id === item.id ? { ...text, text: event.target.value } : text))} style={{ left: `${item.x}%`, top: `${item.y}%`, fontFamily: item.fontFamily, fontSize: item.fontSize, color: item.color, textAlign: item.align }} />)}</section>
+                <section className="spread-spine"><span className={selectedCustomTextId === null && selectedText === "spineTitle" ? "spine-title selected-text" : "spine-title"} onClick={() => selectBuiltInText("spineTitle")} style={{ fontFamily: textStyles.spineTitle.fontFamily, fontSize: textStyles.spineTitle.fontSize, color: textStyles.spineTitle.color, transform: `translate(${textStyles.spineTitle.offsetX}px,${textStyles.spineTitle.offsetY}px)` }}>{title}</span>{showSpineAuthor && <small className={selectedCustomTextId === null && selectedText === "spineAuthor" ? "spine-author selected-text" : "spine-author"} onClick={() => selectBuiltInText("spineAuthor")} style={{ fontFamily: textStyles.spineAuthor.fontFamily, fontSize: textStyles.spineAuthor.fontSize, color: textStyles.spineAuthor.color, transform: `translate(${textStyles.spineAuthor.offsetX}px,${textStyles.spineAuthor.offsetY}px)` }}>{author}</small>}</section>
+                <section className="spread-front"><span className="panel-label">앞표지</span><div className="cover-copy"><span className="cover-symbol">✦</span><h2 className={selectedCustomTextId === null && selectedText === "title" ? "selected-text" : ""} onClick={() => selectBuiltInText("title")} style={{ fontFamily: textStyles.title.fontFamily, fontSize: textStyles.title.fontSize, color: textStyles.title.color, textAlign: textStyles.title.align, transform: `translate(${textStyles.title.offsetX}px,${textStyles.title.offsetY}px)` }}>{title}</h2><p className={selectedCustomTextId === null && selectedText === "subtitle" ? "selected-text" : ""} onClick={() => selectBuiltInText("subtitle")} style={{ fontFamily: textStyles.subtitle.fontFamily, fontSize: textStyles.subtitle.fontSize, color: textStyles.subtitle.color, textAlign: textStyles.subtitle.align, transform: `translate(${textStyles.subtitle.offsetX}px,${textStyles.subtitle.offsetY}px)` }}>{subtitle}</p></div><div className={selectedCustomTextId === null && selectedText === "author" ? "cover-author selected-text" : "cover-author"} onClick={() => selectBuiltInText("author")} style={{ fontFamily: textStyles.author.fontFamily, fontSize: textStyles.author.fontSize, color: textStyles.author.color, textAlign: textStyles.author.align, transform: `translate(${textStyles.author.offsetX}px,${textStyles.author.offsetY}px)` }}>{author} 지음</div>{customTexts.map((item) => <div key={item.id} className={selectedCustomTextId === item.id ? "custom-text-layer selected" : "custom-text-layer"} style={{ left: `${item.x}%`, top: `${item.y}%` }} onClick={() => { setSelectedCustomTextId(item.id); setActiveTool("text"); }}><input className="custom-cover-text" aria-label="추가 문구" value={item.text} onChange={(event) => setCustomTexts((items) => items.map((text) => text.id === item.id ? { ...text, text: event.target.value } : text))} style={{ fontFamily: item.fontFamily, fontSize: item.fontSize, color: item.color, textAlign: item.align }} /><span className="custom-text-actions"><button type="button" aria-label="추가 텍스트 이동" title="드래그하여 이동" onPointerDown={(event) => beginCustomTextDrag(event, item.id)}>✥</button><button type="button" aria-label="추가 텍스트 삭제" title="삭제" onClick={(event) => { event.stopPropagation(); deleteCustomText(item.id); }}>×</button></span></div>)}</section>
                 {hasFlaps && <section className="spread-flap flap-right"><small>날개 {flapWidth}mm</small><p>책 속의 문장과 출판 정보를 담는 공간</p></section>}
               </div>
               <div className="spread-caption"><span>← 뒤표지</span><b>{spineWidth.toFixed(2)}mm</b><span>앞표지 →</span></div>
@@ -592,10 +651,10 @@ export default function Home() {
               </div>
               {activeTool && <div className="editor-popover">
                 <div className="editor-popover-head"><b>{activeTool === "text" ? "텍스트 편집" : activeTool === "image" ? "배경 이미지" : activeTool === "color" ? "표지 색상" : "위치와 정렬"}</b><button aria-label="편집 도구 닫기" onClick={() => setActiveTool(null)}>×</button></div>
-                {activeTool === "text" && <><label>편집 대상<select value={selectedText} onChange={(event) => setSelectedText(event.target.value as TextTarget)}><option value="title">앞표지 제목</option><option value="subtitle">부제</option><option value="author">저자명</option><option value="spineTitle">책등 제목</option><option value="spineAuthor">책등 작가명</option></select></label><label>글꼴<select value={textStyles[selectedText].fontFamily} onChange={(event) => patchTextStyle({ fontFamily: event.target.value })}><option>Noto Serif KR</option><option>Noto Sans KR</option><option>Georgia</option><option>Arial</option></select></label><label>크기<input type="range" min="5" max="56" value={textStyles[selectedText].fontSize} onChange={(event) => patchTextStyle({ fontSize: Number(event.target.value) })} /><output>{textStyles[selectedText].fontSize}px</output></label><label>글자색<input type="color" value={textStyles[selectedText].color} onChange={(event) => patchTextStyle({ color: event.target.value })} /></label><button className="add-text-button" onClick={addCustomText}>＋ 텍스트 추가</button></>}
+                {activeTool === "text" && <>{selectedCustomTextId === null ? <label>편집 대상<select value={selectedText} onChange={(event) => selectBuiltInText(event.target.value as TextTarget)}><option value="title">앞표지 제목</option><option value="subtitle">부제</option><option value="author">저자명</option><option value="spineTitle">책등 제목</option><option value="spineAuthor">책등 작가명</option></select></label> : <div className="custom-text-selected"><span>추가 텍스트 편집 중</span><button onClick={() => setSelectedCustomTextId(null)}>기본 텍스트 선택</button></div>}<label>글꼴<select value={activeTextStyle.fontFamily} onChange={(event) => patchTextStyle({ fontFamily: event.target.value })}><option>Noto Serif KR</option><option>Noto Sans KR</option><option>Georgia</option><option>Arial</option></select></label><label>크기<input type="range" min="5" max="56" value={activeTextStyle.fontSize} onChange={(event) => patchTextStyle({ fontSize: Number(event.target.value) })} /><output>{activeTextStyle.fontSize}px</output></label><label>글자색<input type="color" value={activeTextStyle.color} onChange={(event) => patchTextStyle({ color: event.target.value })} /></label>{selectedCustomTextId !== null && <button className="delete-text-button" onClick={() => deleteCustomText(selectedCustomTextId)}>추가 텍스트 삭제</button>}<button className="add-text-button" onClick={addCustomText}>＋ 텍스트 추가</button></>}
                 {activeTool === "image" && <><label className="image-replace">이미지 교체<input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => importCanvaCover(event.target.files?.[0], "ai")} /></label><label>확대<input type="range" min="100" max="200" value={backgroundScale} onChange={(event) => setBackgroundScale(Number(event.target.value))} /><output>{backgroundScale}%</output></label><label>가로 위치<input type="range" min="0" max="100" value={backgroundX} onChange={(event) => setBackgroundX(Number(event.target.value))} /></label><label>세로 위치<input type="range" min="0" max="100" value={backgroundY} onChange={(event) => setBackgroundY(Number(event.target.value))} /></label></>}
                 {activeTool === "color" && <><label>배경색<input type="color" value={backgroundColor} onChange={(event) => setBackgroundColor(event.target.value)} /></label><div className="color-swatches">{["#d95b42", "#182a3b", "#315447", "#ede5d4", "#2a2028"].map((color) => <button key={color} aria-label={`${color} 색상`} style={{ background: color }} onClick={() => setBackgroundColor(color)} />)}</div></>}
-                {activeTool === "align" && <><div className="align-buttons"><button onClick={() => patchTextStyle({ align: "left" })}>왼쪽</button><button onClick={() => patchTextStyle({ align: "center" })}>가운데</button><button onClick={() => patchTextStyle({ align: "right" })}>오른쪽</button></div><div className="nudge-buttons"><button aria-label="위로 이동" onClick={() => patchTextStyle({ offsetY: textStyles[selectedText].offsetY - 2 })}>↑</button><button aria-label="왼쪽으로 이동" onClick={() => patchTextStyle({ offsetX: textStyles[selectedText].offsetX - 2 })}>←</button><button aria-label="위치 초기화" onClick={() => patchTextStyle({ offsetX: 0, offsetY: 0 })}>•</button><button aria-label="오른쪽으로 이동" onClick={() => patchTextStyle({ offsetX: textStyles[selectedText].offsetX + 2 })}>→</button><button aria-label="아래로 이동" onClick={() => patchTextStyle({ offsetY: textStyles[selectedText].offsetY + 2 })}>↓</button></div></>}
+                {activeTool === "align" && <><div className="align-buttons"><button onClick={() => patchTextStyle({ align: "left" })}>왼쪽</button><button onClick={() => patchTextStyle({ align: "center" })}>가운데</button><button onClick={() => patchTextStyle({ align: "right" })}>오른쪽</button></div><div className="nudge-buttons"><button aria-label="위로 이동" onClick={() => nudgeSelectedText(0, -2)}>↑</button><button aria-label="왼쪽으로 이동" onClick={() => nudgeSelectedText(-2, 0)}>←</button><button aria-label="위치 초기화" onClick={resetSelectedTextPosition}>•</button><button aria-label="오른쪽으로 이동" onClick={() => nudgeSelectedText(2, 0)}>→</button><button aria-label="아래로 이동" onClick={() => nudgeSelectedText(0, 2)}>↓</button></div></>}
               </div>}
             </div>
             <div className="canvas-footer"><span>{trim.label} {trim.width}×{trim.height}mm · {pageCount}P · 책등 {spineWidth.toFixed(2)}mm · {hasFlaps ? `날개 ${flapWidth}mm` : "날개 없음"}</span><div><button onClick={downloadPrintPng}>300 DPI PNG</button><button onClick={downloadPrintPdf}>인쇄용 PDF</button></div><span>전체 {spreadWidth}×{spreadHeight}mm · {outputPixels.width.toLocaleString()}×{outputPixels.height.toLocaleString()}px</span></div>
