@@ -8,6 +8,9 @@ import {
   moveManuscriptChapter,
   removeManuscriptChapter,
   removeManuscriptPage,
+  sanitizeEditorHtml,
+  toEditorHtml,
+  plainTextFromEditorHtml,
   updateManuscriptPage,
 } from "../app/lib/manuscript.mjs";
 
@@ -46,4 +49,10 @@ test("builds a live table of contents from chapter and page order", () => {
     { chapterId: 1, kicker: "프롤로그", title: "시작", startPage: 3, pageCount: 1 },
     { chapterId: 2, kicker: "1장", title: "기록", startPage: 4, pageCount: 2 },
   ]);
+});
+
+test("converts plain manuscript text into safe rich editor paragraphs", () => {
+  assert.equal(toEditorHtml("첫 문단\n\n둘째 문단"), "<p>첫 문단</p><p>둘째 문단</p>");
+  assert.equal(sanitizeEditorHtml('<h2 onclick="bad()">제목</h2><script>alert(1)</script><blockquote>인용</blockquote>'), "<h2>제목</h2><blockquote>인용</blockquote>");
+  assert.equal(plainTextFromEditorHtml("<h2>제목</h2><p>본문<br>다음 줄</p>"), "제목\n본문\n다음 줄");
 });

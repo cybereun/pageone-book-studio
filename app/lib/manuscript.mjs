@@ -3,6 +3,50 @@ function nextManuscriptId(chapters) {
   return Math.max(0, ...ids.map(Number)) + 1;
 }
 
+function escapeEditorText(value) {
+  return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+}
+
+export function sanitizeEditorHtml(value) {
+  const withoutUnsafeBlocks = String(value || "")
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/<(script|style|iframe|object|embed)[^>]*>[\s\S]*?<\/\1>/gi, "")
+    .replace(/<(div)(?:\s[^>]*)?>/gi, "<p>")
+    .replace(/<\/(div)>/gi, "</p>")
+    .replace(/<(b)(?:\s[^>]*)?>/gi, "<strong>")
+    .replace(/<\/(b)>/gi, "</strong>")
+    .replace(/<(i)(?:\s[^>]*)?>/gi, "<em>")
+    .replace(/<\/(i)>/gi, "</em>");
+  const allowed = new Set(["p", "h2", "blockquote", "strong", "em", "u", "br"]);
+  return withoutUnsafeBlocks.replace(/<\/?([a-z0-9]+)(?:\s[^>]*)?>/gi, (tag, name) => {
+    const normalized = String(name).toLowerCase();
+    if (!allowed.has(normalized)) return "";
+    if (normalized === "br") return "<br>";
+    return tag.startsWith("</") ? `</${normalized}>` : `<${normalized}>`;
+  });
+}
+
+export function toEditorHtml(value) {
+  const source = String(value || "");
+  if (/<\/?(?:p|h2|blockquote|strong|em|u|br)\b/i.test(source)) return sanitizeEditorHtml(source);
+  if (!source) return "<p><br></p>";
+  return source.split(/\n{2,}/).map((paragraph) => `<p>${escapeEditorText(paragraph).replaceAll("\n", "<br>")}</p>`).join("");
+}
+
+export function plainTextFromEditorHtml(value) {
+  return sanitizeEditorHtml(value)
+    .replace(/<br>/gi, "\n")
+    .replace(/<\/(?:p|h2|blockquote)>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replaceAll("&nbsp;", " ")
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&quot;", '"')
+    .replaceAll("&amp;", "&")
+    .replace(/\n{2,}/g, "\n")
+    .trim();
+}
+
 export function addManuscriptChapter(chapters) {
   const chapterId = nextManuscriptId(chapters);
   return [...chapters, {

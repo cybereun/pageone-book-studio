@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { buildSinglePageJpegPdf, calculateCoverImagePlacement, calculateCoverSpec, calculatePreviewDimensions, clampZoom, isSupportedCoverImageFile, moveCustomTextPosition, removeCustomTextById, validateImportedImage } from "./lib/cover-spec.mjs";
-import { addManuscriptChapter, addManuscriptPage, buildTableOfContents, moveManuscriptChapter, removeManuscriptChapter, removeManuscriptPage, updateManuscriptPage } from "./lib/manuscript.mjs";
+import { addManuscriptChapter, addManuscriptPage, buildTableOfContents, moveManuscriptChapter, plainTextFromEditorHtml, removeManuscriptChapter, removeManuscriptPage, sanitizeEditorHtml, toEditorHtml, updateManuscriptPage } from "./lib/manuscript.mjs";
 
 type Step = "cover" | "edit" | "publish";
 type Provider = "openai" | "gemini" | "claude";
@@ -104,6 +104,9 @@ export default function Home() {
   const [activeChapterId, setActiveChapterId] = useState(1);
   const [activePageId, setActivePageId] = useState(101);
   const [editorView, setEditorView] = useState<EditorView>("page");
+  const [paragraphStyle, setParagraphStyle] = useState("p");
+  const richEditorRef = useRef<HTMLDivElement | null>(null);
+  const editorSelectionRef = useRef<Range | null>(null);
   const [aiInput, setAiInput] = useState("첫 문단을 더 몰입감 있게 다듬어줘");
   const [aiReply, setAiReply] = useState("원고의 목소리는 그대로 두고, 문장의 호흡과 장면감을 섬세하게 다듬어 드릴게요.");
   const [aiProviderLabel, setAiProviderLabel] = useState("준비됨");
@@ -197,8 +200,15 @@ export default function Home() {
   const activeTocEntry = tocEntries.find((entry: { chapterId: number }) => entry.chapterId === activeChapter.id);
   const activePageIndex = activeChapter.pages.findIndex((page) => page.id === activePage.id);
   const activeBookPage = (activeTocEntry?.startPage ?? 3) + Math.max(0, activePageIndex);
-  const wordCount = useMemo(() => manuscript.reduce((total, chapter) => total + chapter.pages.reduce((sum, page) => sum + page.content.replace(/\s/g, "").length, 0), 0), [manuscript]);
+  const wordCount = useMemo(() => manuscript.reduce((total, chapter) => total + chapter.pages.reduce((sum, page) => sum + plainTextFromEditorHtml(toEditorHtml(page.content)).replace(/\s/g, "").length, 0), 0), [manuscript]);
   const manuscriptPageCount = flatPages.length;
+
+  useEffect(() => {
+    if (editorView === "page" && richEditorRef.current) richEditorRef.current.innerHTML = toEditorHtml(activePage.content);
+    editorSelectionRef.current = null;
+  // Content changes are written by the editor itself; resync only when changing pages or views to preserve the caret.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activePage.id, editorView]);
   const trim = trimOptions.find((item) => item.id === trimId) ?? trimOptions[1];
   const coverSpec = calculateCoverSpec({ trimWidth: trim.width, trimHeight: trim.height, pageCount, hasFlaps, flapWidth });
   const { spineWidth, bleed, spreadWidth, spreadHeight } = coverSpec;
@@ -548,6 +558,45 @@ export default function Home() {
     setManuscript((items) => updateManuscriptPage(items, activeChapter.id, activePage.id, content) as ManuscriptChapter[]);
   }
 
+  function commitRichEditor() {
+    if (!richEditorRef.current) return;
+    const html = sanitizeEditorHtml(richEditorRef.current.innerHTML);
+    if (richEditorRef.current.innerHTML !== html) richEditorRef.current.innerHTML = html;
+    updateActivePage(html);
+  }
+
+  function rememberEditorSelection() {
+    const selection = window.getSelection();
+    const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+    if (range && richEditorRef.current?.contains(range.commonAncestorContainer)) editorSelectionRef.current = range.cloneRange();
+  }
+
+  function restoreEditorSelection() {
+    if (!richEditorRef.current) return false;
+    richEditorRef.current.focus();
+    const range = editorSelectionRef.current;
+    const selection = window.getSelection();
+    if (!range || !selection) return false;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    return true;
+  }
+
+  function applyParagraphStyle(style: string) {
+    setParagraphStyle(style);
+    if (!restoreEditorSelection()) return;
+    document.execCommand("formatBlock", false, style);
+    commitRichEditor();
+    rememberEditorSelection();
+  }
+
+  function applyInlineStyle(command: "bold" | "italic" | "underline") {
+    if (!restoreEditorSelection()) return;
+    document.execCommand(command, false);
+    commitRichEditor();
+    rememberEditorSelection();
+  }
+
   function createPage() {
     const next = addManuscriptPage(manuscript, activeChapter.id, activePage.id) as ManuscriptChapter[];
     const chapter = next.find((item) => item.id === activeChapter.id) ?? next[0];
@@ -591,7 +640,7 @@ export default function Home() {
       const res = await fetch("/api/ai/write", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ request, text: activePage.content, title, chapterTitle: activeChapter.title, pageNumber: activeBookPage, provider, apiKeys }),
+        body: JSON.stringify({ request, text: plainTextFromEditorHtml(toEditorHtml(activePage.content)), title, chapterTitle: activeChapter.title, pageNumber: activeBookPage, provider, apiKeys }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "AI 요청에 실패했습니다.");
@@ -607,7 +656,11 @@ export default function Home() {
 
   function applyAi(mode: "replace" | "append") {
     if (!aiReply) return;
-    updateActivePage(mode === "replace" ? aiReply : `${activePage.content}${activePage.content ? "\n\n" : ""}${aiReply}`);
+    const aiHtml = toEditorHtml(aiReply);
+    const currentHtml = toEditorHtml(activePage.content);
+    const next = mode === "replace" ? aiHtml : `${currentHtml}${aiHtml}`;
+    updateActivePage(next);
+    if (richEditorRef.current) richEditorRef.current.innerHTML = next;
     setToast(mode === "replace" ? "현재 페이지를 AI 제안으로 교체했어요." : "AI 제안을 현재 페이지 뒤에 추가했어요.");
     setTimeout(() => setToast(""), 2600);
   }
@@ -806,8 +859,8 @@ export default function Home() {
 
           <div className="editor-zone">
             <div className="editor-toolbar">
-              <select aria-label="본문 스타일" defaultValue="본문"><option>본문</option><option>제목 1</option><option>인용문</option></select>
-              <button type="button" title="굵게"><b>B</b></button><button type="button" title="기울임"><i>I</i></button><button type="button" title="밑줄"><u>U</u></button><span />
+              <select aria-label="본문 스타일" value={paragraphStyle} onMouseDown={rememberEditorSelection} onChange={(event) => applyParagraphStyle(event.target.value)} disabled={editorView === "toc"}><option value="p">본문</option><option value="h2">제목 1</option><option value="blockquote">인용문</option></select>
+              <button type="button" title="굵게" disabled={editorView === "toc"} onMouseDown={rememberEditorSelection} onClick={() => applyInlineStyle("bold")}><b>B</b></button><button type="button" title="기울임" disabled={editorView === "toc"} onMouseDown={rememberEditorSelection} onClick={() => applyInlineStyle("italic")}><i>I</i></button><button type="button" title="밑줄" disabled={editorView === "toc"} onMouseDown={rememberEditorSelection} onClick={() => applyInlineStyle("underline")}><u>U</u></button><span />
               <button type="button" onClick={showTableOfContents}>☷ 목차</button><button type="button" className="add-page-toolbar" onClick={createPage}>＋ 본문 페이지 추가</button><button type="button" className="delete-page-toolbar" onClick={deletePage}>현재 페이지 삭제</button>
               <small>{wordCount.toLocaleString()}자 · 실제 {manuscriptPageCount}쪽</small>
             </div>
@@ -820,7 +873,7 @@ export default function Home() {
                 <div className="running-head">{title}</div>
                 <input className="chapter-kicker-input" value={activeChapter.kicker} onChange={(event) => patchActiveChapter({ kicker: event.target.value })} aria-label="장 구분" />
                 <input className="chapter-title-input" value={activeChapter.title} onChange={(event) => patchActiveChapter({ title: event.target.value })} aria-label="장 제목" />
-                <textarea value={activePage.content} onChange={(event) => updateActivePage(event.target.value)} aria-label="본문 원고" placeholder="이 페이지의 원고를 작성하세요…" />
+                <div ref={richEditorRef} className="rich-manuscript-editor" contentEditable suppressContentEditableWarning role="textbox" aria-label="본문 원고" aria-multiline="true" data-placeholder="이 페이지의 원고를 작성하세요…" onInput={commitRichEditor} onMouseUp={rememberEditorSelection} onKeyUp={rememberEditorSelection} onBlur={rememberEditorSelection} />
                 <div className="page-number">{activeBookPage}</div>
               </article>}
               <nav className="page-navigation" aria-label="본문 페이지 이동"><button disabled={activeFlatPageIndex <= 0} onClick={() => navigatePage(-1)}>← 이전</button><span>{editorView === "toc" ? "목차" : `${activeFlatPageIndex + 1} / ${manuscriptPageCount} 페이지`}</span><button disabled={activeFlatPageIndex >= flatPages.length - 1} onClick={() => navigatePage(1)}>다음 →</button></nav>
@@ -868,7 +921,7 @@ export default function Home() {
 
       <section className="print-manuscript" aria-hidden="true">
         <article className="manuscript-page toc-page"><div className="running-head">{title}</div><span className="chapter-kicker">CONTENTS</span><h2>목차</h2><div className="toc-list">{tocEntries.map((entry: { chapterId: number; kicker: string; title: string; startPage: number }) => <div key={entry.chapterId}><span>{entry.kicker}</span><b>{entry.title}</b><i /><strong>{entry.startPage}</strong></div>)}</div></article>
-        {manuscript.flatMap((chapter) => chapter.pages.map((page, index) => <article className="manuscript-page" key={page.id}><div className="running-head">{title}</div>{index === 0 && <><span className="chapter-kicker">{chapter.kicker}</span><h2>{chapter.title}</h2></>}<div className="print-page-body">{page.content.split("\n").map((paragraph, paragraphIndex) => <p key={`${page.id}-${paragraphIndex}`}>{paragraph || "\u00a0"}</p>)}</div><div className="page-number">{(tocEntries.find((entry: { chapterId: number }) => entry.chapterId === chapter.id)?.startPage ?? 3) + index}</div></article>))}
+        {manuscript.flatMap((chapter) => chapter.pages.map((page, index) => <article className="manuscript-page" key={page.id}><div className="running-head">{title}</div>{index === 0 && <><span className="chapter-kicker">{chapter.kicker}</span><h2>{chapter.title}</h2></>}<div className="print-page-body" dangerouslySetInnerHTML={{ __html: toEditorHtml(page.content) }} /><div className="page-number">{(tocEntries.find((entry: { chapterId: number }) => entry.chapterId === chapter.id)?.startPage ?? 3) + index}</div></article>))}
       </section>
 
       {toast && <div className="toast">{toast}</div>}
