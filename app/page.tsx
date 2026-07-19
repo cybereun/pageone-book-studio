@@ -56,6 +56,7 @@ export default function Home() {
   const [pageCount, setPageCount] = useState(100);
   const [hasFlaps, setHasFlaps] = useState(false);
   const [flapWidth, setFlapWidth] = useState(90);
+  const [showSpineAuthor, setShowSpineAuthor] = useState(true);
   const [showGuides, setShowGuides] = useState(true);
 
   useEffect(() => {
@@ -78,6 +79,7 @@ export default function Home() {
           setPageCount(draft.pageCount ?? 100);
           setHasFlaps(draft.hasFlaps ?? false);
           setFlapWidth(draft.flapWidth ?? 90);
+          setShowSpineAuthor(draft.showSpineAuthor ?? true);
         });
       } catch { /* keep the starter manuscript */ }
     }
@@ -97,14 +99,14 @@ export default function Home() {
   useEffect(() => {
     const dirtyTimer = setTimeout(() => setSaved(false), 0);
     const timer = setTimeout(() => {
-      localStorage.setItem("pageone-draft", JSON.stringify({ title, subtitle, author, body, coverImage, coverWorkflow, coverSource, canvaFileName, trimId, pageCount, hasFlaps, flapWidth }));
+      localStorage.setItem("pageone-draft", JSON.stringify({ title, subtitle, author, body, coverImage, coverWorkflow, coverSource, canvaFileName, trimId, pageCount, hasFlaps, flapWidth, showSpineAuthor }));
       setSaved(true);
     }, 600);
     return () => {
       clearTimeout(dirtyTimer);
       clearTimeout(timer);
     };
-  }, [title, subtitle, author, body, coverImage, coverWorkflow, coverSource, canvaFileName, trimId, pageCount, hasFlaps, flapWidth]);
+  }, [title, subtitle, author, body, coverImage, coverWorkflow, coverSource, canvaFileName, trimId, pageCount, hasFlaps, flapWidth, showSpineAuthor]);
 
   const wordCount = useMemo(() => body.replace(/\s/g, "").length, [body]);
   const trim = trimOptions.find((item) => item.id === trimId) ?? trimOptions[1];
@@ -127,13 +129,14 @@ export default function Home() {
 - 판형: ${trim.label} (${trim.width}×${trim.height}mm)
 - 페이지 수: ${pageCount}P
 - 책등: ${spineWidth.toFixed(2)}mm
+- 책등 글자: 제목은 크게 세로 한 줄, 작가명은 ${showSpineAuthor ? "제목 아래쪽에 작게 포함" : "제외"}
 - 날개: ${hasFlaps ? `좌우 각 ${flapWidth}mm` : "없음"}
 - 재단 여백: 사방 ${bleed}mm
 - 전체 전개도: ${spreadWidth}×${spreadHeight}mm
 - Canva 사용자 지정 크기: ${outputPixels.width}×${outputPixels.height}px (300DPI 기준)
 - 구성 순서: ${hasFlaps ? "왼쪽 날개 → 뒤표지 → 책등 → 앞표지 → 오른쪽 날개" : "뒤표지 → 책등 → 앞표지"}
 
-중요한 글자와 로고는 재단선에서 5mm 이상 안쪽에 배치하고, 책등 제목은 ${spineWidth.toFixed(2)}mm 영역 중앙에 세로로 정렬해 주세요. 완성 후 고해상도 PNG로 내보내 주세요.`, [author, bleed, coverPrompt, flapWidth, hasFlaps, outputPixels.height, outputPixels.width, pageCount, spineWidth, spreadHeight, spreadWidth, subtitle, title, trim.height, trim.label, trim.width]);
+중요한 글자와 로고는 재단선에서 5mm 이상 안쪽에 배치하고, 책등 제목은 ${spineWidth.toFixed(2)}mm 영역 중앙에 세로 한 줄로 크게 정렬해 주세요.${showSpineAuthor ? " 작가명은 제목과 겹치지 않게 아래쪽에 더 작은 크기로 배치해 주세요." : " 책등에는 작가명을 넣지 마세요."} 완성 후 고해상도 PNG로 내보내 주세요.`, [author, bleed, coverPrompt, flapWidth, hasFlaps, outputPixels.height, outputPixels.width, pageCount, showSpineAuthor, spineWidth, spreadHeight, spreadWidth, subtitle, title, trim.height, trim.label, trim.width]);
 
   async function generateCover() {
     setGenerating(true);
@@ -143,7 +146,7 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt: coverPrompt, title, subtitle, author, provider, apiKeys,
-          spec: { trimId, trimWidth: trim.width, trimHeight: trim.height, pageCount, spineWidth, hasFlaps, flapWidth: hasFlaps ? flapWidth : 0, bleed, spreadWidth, spreadHeight },
+          spec: { trimId, trimWidth: trim.width, trimHeight: trim.height, pageCount, spineWidth, showSpineAuthor, hasFlaps, flapWidth: hasFlaps ? flapWidth : 0, bleed, spreadWidth, spreadHeight },
         }),
       });
       const data = await res.json();
@@ -375,6 +378,7 @@ export default function Home() {
                 <div><span>날개</span><b>{hasFlaps ? `있음 · ${flapWidth}mm` : "없음"}</b></div>
                 {hasFlaps && <label className="flap-width" htmlFor="flap-width"><span>날개 폭</span><div><input id="flap-width" type="number" min="60" max="120" step="5" value={flapWidth} onChange={(event) => setFlapWidth(Math.min(120, Math.max(60, Number(event.target.value) || 90)))} /><em>mm</em></div></label>}
                 <div className="spine-value"><span>자동 책등 두께</span><b>{spineWidth.toFixed(2)} <small>mm</small></b></div>
+                <div className="spine-author-option"><span>책등 작가명</span><div role="radiogroup" aria-label="책등 작가명 표시"><button role="radio" aria-checked={showSpineAuthor} className={showSpineAuthor ? "active" : ""} onClick={() => setShowSpineAuthor(true)}>포함</button><button role="radio" aria-checked={!showSpineAuthor} className={!showSpineAuthor ? "active" : ""} onClick={() => setShowSpineAuthor(false)}>제외</button></div></div>
               </div>
               <div className="spec-summary"><span>전체 전개도</span><b>{spreadWidth} × {spreadHeight}mm</b><small>{outputPixels.width.toLocaleString()} × {outputPixels.height.toLocaleString()}px · 300DPI</small></div>
             </section>
@@ -418,7 +422,7 @@ export default function Home() {
                 {showGuides && <><div className="bleed-guide" /><div className="safe-guide" /></>}
                 {hasFlaps && <section className="spread-flap flap-left"><small>날개 {flapWidth}mm</small><p>저자 소개와 책의 이야기를 담는 공간</p></section>}
                 <section className="spread-back"><span className="panel-label">뒤표지</span><p>어떤 시작은 아주 조용합니다.<br />이 책은 매일의 작은 장면을 천천히 기록하는 방법을 이야기합니다.</p><i>PAGEONE · 2026</i></section>
-                <section className="spread-spine"><span>{title}</span><i>✦</i><small>{author}</small></section>
+                <section className="spread-spine"><span className="spine-title">{title}</span>{showSpineAuthor && <small className="spine-author">{author}</small>}</section>
                 <section className="spread-front"><span className="panel-label">앞표지</span><div className="cover-copy"><span className="cover-symbol">✦</span><h2>{title}</h2><p>{subtitle}</p></div><div className="cover-author">{author} 지음</div></section>
                 {hasFlaps && <section className="spread-flap flap-right"><small>날개 {flapWidth}mm</small><p>책 속의 문장과 출판 정보를 담는 공간</p></section>}
               </div>
