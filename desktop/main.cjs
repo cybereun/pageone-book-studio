@@ -3,11 +3,12 @@ const path=require('node:path');
 const fs=require('node:fs/promises');
 const {PDFDocument}=require('pdf-lib');
 const {atomicSave}=require('./storage.cjs');
+const {createUpdates}=require('./updater.cjs');
 protocol.registerSchemesAsPrivileged([{scheme:'pageone',privileges:{standard:true,secure:true,supportFetchAPI:true,corsEnabled:true}}]);
 if(process.env.PAGEONE_TEST_DATA)app.setPath('userData',process.env.PAGEONE_TEST_DATA);
 const ownsStorage=app.requestSingleInstanceLock();
 if(!ownsStorage)app.quit();
-let main, allowClose=false;
+let main, updates, pendingUpdate=false, allowClose=false;
 app.on('second-instance',()=>{if(main){if(main.isMinimized())main.restore();main.show();main.focus();}});
 const dist=path.resolve(__dirname,'../dist');
 const safeName=name=>String(name||'PAGEONE').replace(/[<>:"/\\|?*\x00-\x1f]/g,'_').slice(0,120);
@@ -56,7 +57,13 @@ if(ownsStorage)app.whenReady().then(async()=>{
   });
   session.defaultSession.setPermissionRequestHandler((_webContents,_permission,callback)=>callback(false));
   session.defaultSession.webRequest.onBeforeRequest((details,callback)=>callback({cancel:!/^pageone:\/\/studio\/|^data:|^blob:/.test(details.url)}));
-  ipcMain.handle('confirm-close',(event,saved)=>{guard(event);if(saved===true){allowClose=true;main.close();}return true;});
+  ipcMain.handle('confirm-close',(event,saved)=>{guard(event);if(pendingUpdate){pendingUpdate=false;if(saved===true)allowClose=true;updates.installAfterSave(saved===true);}else if(saved===true){allowClose=true;main.close();}return true;});
+  const {autoUpdater}=require('electron-updater');
+  updates=createUpdates({updater:autoUpdater,app,getWindow:()=>main,prepareInstall:()=>{pendingUpdate=true;main.webContents.send('before-close');}});
+  ipcMain.handle('update-state',event=>{guard(event);return updates.getState();});
+  ipcMain.handle('update-check',event=>{guard(event);return updates.check();});
+  ipcMain.handle('update-download',event=>{guard(event);return updates.download();});
+  ipcMain.handle('update-install',event=>{guard(event);updates.install();return true;});
   ipcMain.handle('save-file',async(event,data)=>{
     guard(event);if(!Array.isArray(data?.bytes)||data.bytes.length>120*1024*1024||!data.bytes.every(b=>Number.isInteger(b)&&b>=0&&b<=255))throw new Error('저장 데이터가 올바르지 않습니다.');
     if(!['project','epub'].includes(data.kind))throw new Error('지원하지 않는 형식입니다.');
@@ -69,6 +76,7 @@ if(ownsStorage)app.whenReady().then(async()=>{
   main.webContents.setWindowOpenHandler(()=>({action:'deny'}));
   main.webContents.on('will-navigate',(event,url)=>{if(url!=='pageone://studio/index.html')event.preventDefault();});
   await main.loadURL('pageone://studio/index.html');
+  if(app.isPackaged&&!process.env.PAGEONE_DISABLE_UPDATES){setTimeout(()=>updates.check(),5000).unref();setInterval(()=>updates.check(),4*60*60*1000).unref();}
 });
 app.on('window-all-closed',()=>app.quit());
 module.exports={renderPdf};

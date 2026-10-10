@@ -1,0 +1,33 @@
+name: Windows release
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+concurrency:
+  group: pageone-release
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Verify tag version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          if ("v$version" -ne '${{ github.ref_name }}') { throw 'Tag and package version differ' }
+      - run: npm run build
+      - run: npx electron-builder --win nsis --x64 --publish never
+      - name: Publish complete release
+        run: node scripts/publish-release.mjs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
