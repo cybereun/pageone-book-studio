@@ -1,0 +1,37 @@
+import {_electron as electron} from '@playwright/test';
+import assert from 'node:assert/strict';
+import {resolve} from 'node:path';
+import {mkdir,readFile} from 'node:fs/promises';
+import JSZip from 'jszip';
+import {PDFDocument} from 'pdf-lib';
+const out=resolve('test-results/toc');await mkdir(out,{recursive:true});
+const profile=resolve(out,`profile-${Date.now()}`);
+const launch=()=>electron.launch({executablePath:process.env.PAGEONE_EXE||undefined,args:process.env.PAGEONE_EXE?[]:['.'],env:{...process.env,PAGEONE_TEST_DATA:profile}});
+let app=await launch();
+try{
+  let page=await app.firstWindow();await page.getByText('이 기기에 저장됨',{exact:true}).waitFor();
+  assert.equal(await page.locator('.manuscript-editor').evaluate(el=>getComputedStyle(el).fontSize),'18px');
+  assert.equal(await page.locator('.manuscript-editor').evaluate(el=>getComputedStyle(el).color),'rgb(30, 41, 34)');
+  await page.getByRole('button',{name:/목차 편집/,exact:false}).first().click();
+  await page.getByRole('textbox',{name:'목차 페이지 제목',exact:true}).fill('우리 책 차례');
+  await page.getByRole('textbox',{name:'목차 1 제목',exact:true}).fill('수정한 첫 장');
+  await page.getByRole('button',{name:'＋ 목차 항목과 새 장 추가',exact:true}).click();
+  const count=await page.locator('.toc-entry').count();
+  await page.getByRole('textbox',{name:`목차 ${count} 제목`,exact:true}).fill('새로 추가한 장');
+  await page.getByRole('button',{name:`목차 ${count} 위로`,exact:true}).click();
+  await page.getByRole('checkbox',{name:'목차 1 포함',exact:true}).uncheck();
+  await page.getByText('이 기기에 저장됨',{exact:true}).waitFor();
+  await page.waitForFunction(()=>{const frame=document.querySelector('.toc-preview iframe');return frame?.contentDocument?.querySelector('.toc h1')?.textContent==='우리 책 차례';},{},{timeout:60000});
+  const frame=page.frames().find(f=>f.url().includes('preview.html'));assert.ok(!(await frame.locator('.toc').textContent()).includes('수정한 첫 장'));assert.ok((await frame.locator('#pages').textContent()).includes('수정한 첫 장'));
+  await page.locator('.toc-editor').evaluate(el=>{el.scrollTop=0;});await frame.locator('.toc').first().scrollIntoViewIfNeeded();
+  await page.screenshot({path:resolve(out,'toc-editor.png')});
+  await app.evaluate(({dialog},filePath)=>{dialog.showSaveDialog=async()=>({canceled:false,filePath});},resolve(out,'toc.pdf'));
+  await page.getByRole('button',{name:'출판 파일 만들기 ↗'}).click();await page.getByRole('button',{name:/종이책 본문/}).click();await page.getByText(/쪽 PDF를 저장했습니다/).waitFor({timeout:120000});
+  assert.ok((await PDFDocument.load(await readFile(resolve(out,'toc.pdf')))).getPageCount()>3);
+  await app.evaluate(({dialog},filePath)=>{dialog.showSaveDialog=async()=>({canceled:false,filePath});},resolve(out,'toc.epub'));
+  await page.getByRole('button',{name:/EPUB 전자책/}).click();await page.getByText(/EPUB 파일을 생성했습니다/).waitFor();
+  const epub=await JSZip.loadAsync(await readFile(resolve(out,'toc.epub')));const nav=await epub.file('EPUB/nav.xhtml').async('string');assert.ok(nav.includes('우리 책 차례')&&nav.includes('새로 추가한 장')&&!nav.includes('수정한 첫 장'));
+  await app.close();app=await launch();page=await app.firstWindow();await page.getByText('이 기기에 저장됨',{exact:true}).waitFor();await page.getByRole('button',{name:/목차 편집/}).first().click();
+  assert.equal(await page.getByRole('textbox',{name:'목차 페이지 제목',exact:true}).inputValue(),'우리 책 차례');assert.equal(await page.getByRole('checkbox',{name:'목차 1 포함',exact:true}).isChecked(),false);
+  console.log('TOC editor: add/title/order/exclusion, PDF/EPUB export, restart persistence, readable UI passed');
+}finally{await app.close();}

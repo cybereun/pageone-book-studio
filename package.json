@@ -1,41 +1,63 @@
 {
-  "name": "pageone-book-studio",
-  "version": "1.0.0",
+  "name": "pageone-personal-studio",
+  "version": "2.0.2",
   "private": true,
-  "engines": {
-    "node": ">=22.13.0"
-  },
+  "description": "PAGEONE 개인 출판 작업실",
+  "author": "Lebi",
+  "type": "module",
+  "main": "desktop/main.cjs",
   "scripts": {
-    "dev": "vinext dev",
-    "build": "vinext build",
-    "start": "vinext start",
-    "test": "npm run build && node --test tests/rendered-html.test.mjs",
-    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern .broken-node_modules",
-    "db:generate": "drizzle-kit generate"
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "test": "node --test tests/*.test.mjs",
+    "desktop": "electron .",
+    "package:win": "npm run build && electron-builder --win nsis --x64"
   },
   "dependencies": {
-    "drizzle-orm": "0.45.2",
-    "next": "16.2.6",
+    "@pdf-lib/fontkit": "1.1.1",
+    "cfb": "1.2.2",
+    "epubjs": "0.3.93",
+    "fast-xml-parser": "5.3.6",
+    "jszip": "3.10.1",
+    "mammoth": "1.11.0",
+    "pagedjs": "0.4.3",
+    "pako": "2.1.0",
+    "pdf-lib": "1.17.1",
     "react": "19.2.6",
-    "react-dom": "19.2.6"
+    "react-dom": "19.2.6",
+    "sanitize-html": "^2.17.0"
   },
   "devDependencies": {
-    "@cloudflare/vite-plugin": "1.37.1",
-    "@tailwindcss/postcss": "4.2.1",
-    "@types/node": "22.19.19",
-    "@types/react": "19.2.14",
-    "@types/react-dom": "19.2.3",
+    "@playwright/test": "^1.58.2",
     "@vitejs/plugin-react": "6.0.2",
-    "@vitejs/plugin-rsc": "0.5.26",
-    "drizzle-kit": "0.31.10",
-    "eslint": "9.39.4",
-    "eslint-config-next": "16.2.6",
-    "react-server-dom-webpack": "19.2.6",
-    "tailwindcss": "4.2.1",
-    "typescript": "5.9.3",
-    "vinext": "0.0.50",
-    "vite": "8.0.13",
-    "wrangler": "4.92.0"
+    "electron": "42.0.0",
+    "electron-builder": "26.0.12",
+    "vite": "8.0.13"
   },
-  "type": "module"
+  "build": {
+    "appId": "com.pageone.studio",
+    "productName": "PAGEONE",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "desktop/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "signAndEditExecutable": true,
+      "icon": "public/pageone-icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false,
+      "installerIcon": "public/pageone-icon.ico",
+      "uninstallerIcon": "public/pageone-icon.ico"
+    },
+    "compression": "normal"
+  }
 }
